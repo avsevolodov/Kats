@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+<PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+<ItemGroup>
+<ProjectReference Include="../Platform.Infrastructure/Platform.Infrastructure.csproj" />
+<ProjectReference Include="../Platform.Workflows/Platform.Workflows.csproj" />
+<PackageReference Include="Temporalio" />
+<PackageReference Include="Microsoft.Extensions.Hosting" />
+</ItemGroup></Project>

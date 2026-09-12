@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-worker
+spec:
+  replicas: {{ .Values.workerReplicas }}
+  selector:
+    matchLabels: {app: "{{ .Release.Name }}-worker"}
+  template:
+    metadata:
+      labels: {app: "{{ .Release.Name }}-worker"}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1654, runAsGroup: 1654, fsGroup: 1654, seccompProfile: {type: RuntimeDefault}}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: worker
+          image: {{ .Values.images.worker | quote }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          env:
+            - name: ConnectionStrings__Platform
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.database }}, key: connectionString}}
+            - {name: Temporal__Endpoint, value: {{ .Values.temporal.endpoint | quote }}}
+            - {name: Temporal__Namespace, value: {{ .Values.temporal.namespace | quote }}}
+            - {name: Temporal__CertPath, value: /certs/tls.crt}
+            - {name: Temporal__KeyPath, value: /certs/tls.key}
+            - {name: Temporal__CaPath, value: /certs/ca.crt}
+          volumeMounts:
+            - {name: temp, mountPath: /tmp}
+            - {name: tls, mountPath: /certs, readOnly: true}
+      volumes:
+        - {name: temp, emptyDir: {sizeLimit: 64Mi}}
+        - {name: tls, secret: {secretName: {{ .Values.secrets.temporal }}}}

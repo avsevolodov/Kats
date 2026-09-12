@@ -1,0 +1,9 @@
+FROM python:3.12.14-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY agents /app/agents
+COPY scripts/git-askpass.py /app/git-askpass.py
+RUN pip install --no-cache-dir /app/agents && chmod 755 /app/git-askpass.py
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER 10001:10001
+ENTRYPOINT ["agent-runner"]

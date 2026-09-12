@@ -1,0 +1,628 @@
+openapi: 3.0.3
+info:
+  title: Agent Platform MVP API
+  version: 1.0.0
+  description: Proposed contract. Browser same-origin OIDC cookie. Mutations require
+    antiforgery. Owner never accepted from body. WebSocket documented separately.
+paths:
+  /api/v1/security/antiforgery:
+    get:
+      operationId: GetAntiforgeryToken
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AntiforgeryToken'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/repositories:
+    get:
+      operationId: ListRepositories
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repositories'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/runs:
+    get:
+      operationId: ListRuns
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Runs'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    post:
+      operationId: StartRun
+      parameters:
+      - name: X-CSRF-TOKEN
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartRun'
+      responses:
+        '202':
+          description: Durable inbox acceptance, not workflow completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandAccepted'
+        '400':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/runs/{runId}:
+    get:
+      operationId: GetRun
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/runs/{runId}/cancel:
+    post:
+      operationId: CancelRun
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-TOKEN
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRun'
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandAccepted'
+        '404':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/runs/{runId}/events:
+    get:
+      operationId: GetRunEvents
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: afterSequence
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^[0-9]+$
+          default: '0'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Events'
+        '400':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '410':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/runs/{runId}/artifacts/{artifactId}:
+    get:
+      operationId: DownloadArtifact
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: artifactId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Owned immutable artifact
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '410':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+security:
+- SessionCookie: []
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-AgentPlatform
+  schemas:
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+        traceId:
+          type: string
+      additionalProperties: false
+      required:
+      - title
+      - status
+      - code
+    Repository:
+      type: object
+      properties:
+        repositoryId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+      additionalProperties: false
+      required:
+      - repositoryId
+      - displayName
+    Repositories:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Repository'
+      additionalProperties: false
+      required:
+      - items
+    StartRun:
+      type: object
+      properties:
+        commandId:
+          type: string
+          format: uuid
+        repositoryId:
+          type: string
+          format: uuid
+        baseCommit:
+          type: string
+          pattern: ^([0-9a-f]{40}|[0-9a-f]{64})$
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: Additionally enforce UTF-8 byte limit 16384 server-side
+      additionalProperties: false
+      required:
+      - commandId
+      - repositoryId
+      - baseCommit
+      - prompt
+    CancelRun:
+      type: object
+      properties:
+        commandId:
+          type: string
+          format: uuid
+      additionalProperties: false
+      required:
+      - commandId
+    CommandAccepted:
+      type: object
+      properties:
+        commandId:
+          type: string
+          format: uuid
+        runId:
+          type: string
+          format: uuid
+        ack:
+          type: string
+          enum:
+          - PERSISTED
+        commandStatus:
+          type: string
+          enum:
+          - PENDING
+          - DISPATCHED
+          - PROCESSED
+        statusUrl:
+          type: string
+      additionalProperties: false
+      required:
+      - commandId
+      - runId
+      - ack
+      - commandStatus
+      - statusUrl
+    Run:
+      type: object
+      properties:
+        runId:
+          type: string
+          format: uuid
+        repositoryId:
+          type: string
+          format: uuid
+        baseCommit:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACCEPTED
+          - STARTING
+          - QUEUED
+          - RUNNING
+          - CANCEL_REQUESTED
+          - SUCCEEDED
+          - FAILED
+          - CANCELLED
+          - NEEDS_ATTENTION
+        operationStatus:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        lastEventSequence:
+          type: string
+          pattern: ^[0-9]+$
+        earliestAvailableSequence:
+          type: string
+          pattern: ^[0-9]+$
+        errorCode:
+          type: string
+        safeErrorMessage:
+          type: string
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Artifact'
+      additionalProperties: false
+      required:
+      - runId
+      - repositoryId
+      - baseCommit
+      - status
+      - createdAt
+      - lastEventSequence
+      - earliestAvailableSequence
+      - artifacts
+    Runs:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Run'
+        nextCursor:
+          type: string
+          nullable: true
+      additionalProperties: false
+      required:
+      - items
+    Artifact:
+      type: object
+      properties:
+        artifactId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+          - summary
+          - patch
+        mediaType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
+        sha256:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        downloadUrl:
+          type: string
+      additionalProperties: false
+      required:
+      - artifactId
+      - kind
+      - mediaType
+      - sizeBytes
+      - sha256
+      - downloadUrl
+    Event:
+      type: object
+      properties:
+        runId:
+          type: string
+          format: uuid
+        sequence:
+          type: string
+          pattern: ^[0-9]+$
+        kind:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+      required:
+      - runId
+      - sequence
+      - kind
+      - payload
+      - createdAt
+    Events:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        highWatermark:
+          type: string
+          pattern: ^[0-9]+$
+        earliestAvailableSequence:
+          type: string
+          pattern: ^[0-9]+$
+        hasMore:
+          type: boolean
+      additionalProperties: false
+      required:
+      - items
+      - highWatermark
+      - earliestAvailableSequence
+      - hasMore
+    AntiforgeryToken:
+      type: object
+      properties:
+        requestToken:
+          type: string
+        headerName:
+          type: string
+          enum:
+          - X-CSRF-TOKEN
+      additionalProperties: false
+      required:
+      - requestToken
+      - headerName

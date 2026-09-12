@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+<PropertyGroup><RootNamespace>AgentPlatform.Ui</RootNamespace></PropertyGroup><ItemGroup>
+<ProjectReference Include="../Platform.Contracts/Platform.Contracts.csproj" />
+<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+</ItemGroup></Project>

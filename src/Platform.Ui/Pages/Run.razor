@@ -1,0 +1,70 @@
+@page "/runs/{Id:guid}"
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject NavigationManager Nav
+<main>
+<header><a href="/">← Все задачи</a><span class="brand">AGENT PLATFORM</span></header>
+<h1>Выполнение задачи</h1>
+@if (run != null)
+{
+    <p><strong>@run.Status</strong> · <span class="muted">@connection</span></p>
+    <p>Исходный commit: <code>@run.BaseCommit</code></p>
+    @if (!States.Terminal(run.Status)) { <button class="secondary" @onclick="Cancel">Отменить</button> }
+    @if (run.Status == "NEEDS_ATTENTION") { <p class="error">Исполнитель потерян или результат остановки неизвестен. Автоматический повтор не выполняется. Создайте новую задачу после проверки.</p> }
+    @if (run.ErrorCode != null) { <p role="alert">@run.ErrorCode</p> }
+    @if (run.Artifacts.Count > 0) { <section><h2>Результаты</h2>@foreach (var a in run.Artifacts) { <p><a href="@a.DownloadUrl" download>@(a.Kind == "patch" ? "Скачать patch" : "Скачать описание результата")</a> · @a.SizeBytes байт</p> }</section> }
+}
+@if (error != null) { <p role="alert" class="error">@error</p> }
+<section><h2>Ход работы</h2><pre aria-live="polite">@output</pre></section>
+</main>
+@code {
+    [Parameter] public Guid Id { get; set; }
+    RunView? run; string output = "", connection = "Подключение…"; string? error; long cursor;
+    readonly CancellationTokenSource stop = new(); Task? stream; System.Net.WebSockets.ClientWebSocket? socket;
+    Guid cancelId = Guid.NewGuid();
+    protected override async Task OnInitializedAsync() { await Refresh(); stream = ReadStream(); }
+    async Task Refresh() { try { run = await Http.GetFromJsonAsync<RunView>($"api/v1/runs/{Id}", stop.Token); } catch { error = "Не удалось получить состояние задачи. Войдите в систему или повторите позже."; } }
+    async Task Cancel()
+    {
+        try
+        {
+            var token = await Http.GetFromJsonAsync<JsonElement>("api/v1/security/antiforgery");
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"api/v1/runs/{Id}/cancel") { Content = JsonContent.Create(new CancelRun(cancelId)) };
+            req.Headers.Add("X-CSRF-TOKEN", token.GetProperty("requestToken").GetString());
+            var result = await Http.SendAsync(req); result.EnsureSuccessStatusCode(); connection = "Отмена запрошена";
+        }
+        catch { error = "Подтверждение отмены не получено. Можно повторить запрос."; }
+    }
+    async Task ReadStream()
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            try
+            {
+                using var ws = new System.Net.WebSockets.ClientWebSocket(); socket = ws;
+                var url = new UriBuilder(new Uri(new Uri(Nav.BaseUri), "api/v1/stream")); url.Scheme = url.Scheme == "https" ? "wss" : "ws";
+                await ws.ConnectAsync(url.Uri, stop.Token);
+                var sub = System.Text.Encoding.UTF8.GetBytes(Wire.Serialize(new { type = "subscribe", protocolVersion = 1, runId = Id, afterSequence = cursor.ToString() }));
+                await ws.SendAsync(sub.AsMemory(), System.Net.WebSockets.WebSocketMessageType.Text, true, stop.Token);
+                connection = "Подключено";
+                while (!stop.IsCancellationRequested)
+                {
+                    using var bytes = new MemoryStream(); var buffer = new byte[16384]; System.Net.WebSockets.ValueWebSocketReceiveResult received;
+                    do { received = await ws.ReceiveAsync(buffer.AsMemory(), stop.Token); if (received.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) throw new IOException(); bytes.Write(buffer, 0, received.Count); if (bytes.Length > 262144) throw new IOException(); } while (!received.EndOfMessage);
+                    var message = JsonSerializer.Deserialize<JsonElement>(bytes.ToArray()); var type = message.GetProperty("type").GetString();
+                    if (type == "cursor_expired") { await Refresh(); cursor = long.Parse(run!.EarliestAvailableSequence) - 1; output = "Предыдущая история истекла.\n"; break; }
+                    if (type != "event") continue;
+                    var n = long.Parse(message.GetProperty("sequence").GetString()!); if (n <= cursor) continue;
+                    var kind = message.GetProperty("kind").GetString();
+                    if (kind == "OutputBatch") output += message.GetProperty("payload").GetProperty("text").GetString();
+                    if (kind == "OutputTruncated") output += "\nПромежуточный вывод ограничен. Финальные результаты будут доступны отдельно.\n";
+                    if (output.Length > 524288) output = output[^524288..];
+                    cursor = n; await Refresh(); await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (Exception) when (!stop.IsCancellationRequested) { connection = "Переподключение…"; await InvokeAsync(StateHasChanged); }
+            if (!stop.IsCancellationRequested) await Task.Delay(1000, stop.Token);
+        }
+    }
+    public async ValueTask DisposeAsync() { stop.Cancel(); socket?.Abort(); if (stream != null) try { await stream; } catch (OperationCanceledException) { } stop.Dispose(); }
+}

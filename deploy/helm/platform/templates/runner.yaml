@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-runner
+spec:
+  replicas: {{ .Values.runnerReplicas }}
+  selector:
+    matchLabels: {app: "{{ .Release.Name }}-runner"}
+  template:
+    metadata:
+      labels: {app: "{{ .Release.Name }}-runner"}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: runner
+          image: {{ .Values.images.runner | quote }}
+          securityContext: {runAsUser: 10001, runAsGroup: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi, ephemeral-storage: 512Mi}
+            limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 3Gi}
+          env:
+            - {name: PLATFORM_GRPC, value: "{{ .Release.Name }}-api:8081"}
+            - {name: RUNNER_CA, value: /certs/ca.crt}
+            - {name: RUNNER_CERT, value: /certs/tls.crt}
+            - {name: RUNNER_KEY, value: /certs/tls.key}
+            - {name: RUNNER_MODE, value: {{ .Values.runner.mode | quote }}}
+            - {name: WORKSPACE_ROOT, value: /workspace}
+            - {name: GIT_ALLOWED_HOSTS, value: {{ .Values.runner.gitAllowedHosts | quote }}}
+            - {name: GIT_ASKPASS, value: /app/git-askpass.py}
+            - {name: GIT_CREDENTIAL_DIR, value: /git-credentials}
+            - {name: OPENCODE_MODEL, value: {{ .Values.runner.model | quote }}}
+            - {name: OPENCODE_PROVIDER, value: {{ .Values.runner.provider | quote }}}
+            - name: OPENCODE_SERVER_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.opencode }}, key: serverPassword}}
+          volumeMounts:
+            - {name: workspace, mountPath: /workspace}
+            - {name: runner-temp, mountPath: /tmp}
+            - {name: tls, mountPath: /certs, readOnly: true}
+            - {name: git, mountPath: /git-credentials, readOnly: true}
+        - name: opencode
+          image: {{ .Values.images.opencode | quote }}
+          command: [opencode, serve, --hostname, 127.0.0.1, --port, "4096"]
+          securityContext: {runAsUser: 10002, runAsGroup: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources:
+            requests: {cpu: 200m, memory: 256Mi, ephemeral-storage: 512Mi}
+            limits: {cpu: "2", memory: 2Gi, ephemeral-storage: 3Gi}
+          env:
+            - {name: XDG_DATA_HOME, value: /data}
+            - {name: XDG_CONFIG_HOME, value: /config}
+            - {name: XDG_CACHE_HOME, value: /cache}
+            - {name: OPENCODE_CONFIG, value: /provider/opencode.json}
+            - name: OPENCODE_SERVER_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.opencode }}, key: serverPassword}}
+          volumeMounts:
+            - {name: workspace, mountPath: /workspace}
+            - {name: opencode-temp, mountPath: /tmp}
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /config}
+            - {name: cache, mountPath: /cache}
+            - {name: provider, mountPath: /provider, readOnly: true}
+      volumes:
+        - {name: workspace, emptyDir: {sizeLimit: 2Gi}}
+        - {name: runner-temp, emptyDir: {sizeLimit: 64Mi}}
+        - {name: opencode-temp, emptyDir: {sizeLimit: 256Mi}}
+        - {name: data, emptyDir: {sizeLimit: 256Mi}}
+        - {name: config, emptyDir: {sizeLimit: 64Mi}}
+        - {name: cache, emptyDir: {sizeLimit: 256Mi}}
+        - {name: tls, secret: {secretName: {{ .Values.secrets.runnerTls }}}}
+        - {name: git, secret: {secretName: {{ .Values.secrets.repository }}}}
+        - {name: provider, secret: {secretName: {{ .Values.secrets.opencode }}}}
