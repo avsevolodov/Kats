@@ -2,6 +2,10 @@
 
 ## Запуск приложения
 
+Для локально установленного OpenCode без `serve` выберите в `.local/settings.json`
+`runner.backend: "cli"` и запускайте `python3 scripts/dev.py run runner`.
+Wrapper сам вызывает CLI; подробности и ограничения — в инструкции ниже.
+
 Добавлены [Docker Compose и локальный запуск](docs/local-development.md):
 `python3 scripts/dev.py init`, настройка `.local/settings.json`, затем
 `python3 scripts/dev.py render compose` и

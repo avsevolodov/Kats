@@ -1,5 +1,20 @@
 # Статус реализации
 
+## Native OpenCode CLI
+
+Добавлен opt-in `runner.backend=cli`: локальный executable, prompt по stdin, JSON
+preview, рабочий каталог checkout, ограниченный stdout и summary, exit/deadline/cancel.
+Server backend остаётся default. SQL Begin предшествует subprocess; повтор prompt
+запрещён. `cli-UUID` в session-поле — execution token. Неопределённые CLI исходы
+переходят в UNKNOWN/NEEDS_ATTENTION. SIGTERM wrapper обрабатывается с cleanup.
+
+Evidence: 16 Python tests passed, включая 6 CLI subprocess fixtures: literal stdin,
+непередача Git credential env, запрет повтора, invalid JSON, incomplete output,
+nonzero exit, отмена и timeout с ожиданием завершения дочернего процесса.
+Формат сверён с исходником OpenCode v1.2.27. Реальный binary/LLM smoke не выполнен:
+OpenCode не установлен в среде. Fake executable проверяет wrapper, не совместимость
+со всеми версиями OpenCode или внешние SQL/Temporal гарантии.
+
 ## Docker Compose / native development
 
 Добавлены compose.yaml, генератор dev-сертификатов/config и launcher четырёх native

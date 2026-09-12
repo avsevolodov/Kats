@@ -105,3 +105,9 @@ class OpenCode:
 
     async def close(self):
         await self.http.aclose()
+
+    async def cleanup(self):
+        if self.session:
+            result = await self.http.delete(f"/session/{self.session}", params={"directory": self.directory})
+            result.raise_for_status()
+            self.session = None

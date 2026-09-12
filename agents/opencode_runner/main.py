@@ -7,6 +7,7 @@ from .core import RunnerError, clip_utf8, result_hash
 from .transport import Transport
 from .workspace import Workspace
 from .opencode import OpenCode
+from .cli import OpenCodeCli
 
 
 async def process(t, assignment, code, workspace):
@@ -66,7 +67,7 @@ async def process(t, assignment, code, workspace):
                 if not await code.abort(): error = "ABORT_UNCONFIRMED"
             except Exception: error = "ABORT_UNCONFIRMED"
         if error == "CANCELLED": outcome = pb.OPERATION_OUTCOME_CANCELLED
-        elif error in {"ABORT_UNCONFIRMED", "OPENCODE_TIMEOUT", "FENCED", "LEASE_EXPIRED", "RUNNER_FAILURE"}: outcome = pb.OPERATION_OUTCOME_UNKNOWN
+        elif error in {"ABORT_UNCONFIRMED", "OPENCODE_TIMEOUT", "FENCED", "LEASE_EXPIRED", "RUNNER_FAILURE", "OPENCODE_CLI_INCOMPLETE", "OPENCODE_CLI_EXIT_FAILED", "OPENCODE_CLI_INVALID_JSON", "OPENCODE_CLI_ERROR"}: outcome = pb.OPERATION_OUTCOME_UNKNOWN
         summary = patch = ""
     finally:
         completed = True
@@ -79,8 +80,14 @@ async def process(t, assignment, code, workspace):
 
 
 async def run():
-    code = None if os.environ.get("RUNNER_MODE") == "fake" else OpenCode(os.environ.get("OPENCODE_URL", "http://127.0.0.1:4096"))
-    if code:
+    backend = os.environ.get("OPENCODE_BACKEND", "server")
+    if backend not in {"server", "cli"}:
+        raise RunnerError("INVALID_OPENCODE_BACKEND")
+    code = None if os.environ.get("RUNNER_MODE") == "fake" else (
+        OpenCodeCli() if backend == "cli" else OpenCode(os.environ.get("OPENCODE_URL", "http://127.0.0.1:4096")))
+    if code and backend == "cli":
+        await code.health()
+    elif code:
         # Startup readiness only: never retry submitting an operation/prompt here.
         try:
             async with asyncio.timeout(60):
@@ -106,7 +113,7 @@ async def run():
                 await asyncio.sleep(assignment.no_work.retry_after_ms / 1000); continue
             await process(t, assignment.assignment, code, Workspace(os.environ.get("WORKSPACE_ROOT", "/workspace")))
             if code and code.session:
-                result = await code.http.delete(f"/session/{code.session}", params={"directory": code.directory}); result.raise_for_status(); code.session = None
+                await code.cleanup()
     finally:
         await t.close(); connection.cancel()
         try: await connection
@@ -115,6 +122,11 @@ async def run():
 
 
 def main():
+    # Turn SIGTERM into orderly cancellation so owned CLI children are stopped.
+    import signal
+    def stop(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
     try: asyncio.run(run())
     except KeyboardInterrupt: pass
 

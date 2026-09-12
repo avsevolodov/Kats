@@ -44,6 +44,11 @@ Branch: `001-temporal-mvp` • Status: Ready for implementation with infrastruct
 
 ### US6 — Development без Kubernetes (дополнение)
 
+Native также поддерживает `OPENCODE_BACKEND=cli`: локальный `opencode run` через
+stdin/NDJSON вместо server API. Begin хранит wrapper execution token; CLI cancellation
+после старта даёт UNKNOWN, а не подтверждённый CANCELLED. Это расширение FR-003
+для native, существующий server backend остаётся default.
+
 По запросу пользователя поддерживаются Docker Compose и native Linux/macOS/WSL:
 одинаковые API/worker/runner, конфигурируемый workspace, HTTPS UI и mTLS runner.
 MSSQL/Temporal/OIDC — внешние prerequisites. Dev bind mounts разрешены только в

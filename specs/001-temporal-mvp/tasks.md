@@ -2,6 +2,8 @@
 
 ## Дополнение: запуск без Kubernetes (US6)
 
+- [ ] DEV004 Native CLI adapter: stdin/JSON, exit/timeout/cancel, защита от повтора; live OpenCode smoke после subprocess fixtures.
+
 - [x] DEV001 Настраиваемый native workspace OpenCode; тест directory propagation.
 - [x] DEV002 Генератор dev CA, серверного/client сертификатов и конфигурации local/compose; OpenSSL verify, повторный init и оба render прошли.
 - [ ] DEV003 Полный Compose build/up и native E2E с реальными MSSQL, Temporal, OIDC и LLM. Файлы и launcher реализованы; live gate остаётся открытым.

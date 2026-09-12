@@ -103,6 +103,47 @@ docker compose --env-file .local/compose.env down
 
 ## Native: четыре терминала
 
+### CLI: без отдельного OpenCode server
+
+В `.local/settings.json` задайте `runner.backend: "cli"`, `runner.cliVersion: "1.2.27"`
+и `local.opencode` — путь к установленному executable (или `opencode` из PATH).
+Сохраните остальные поля. Запускайте только API, worker и runner:
+
+```bash
+python3 scripts/dev.py run runner
+```
+
+Wrapper сам вызывает `opencode run --format json --model provider/model --title <execution-token>`
+в каталоге checkout. Prompt передаётся через stdin, не через shell/аргументы процесса.
+Отдельный `opencode serve`, HTTP endpoint и Docker для этого режима не нужны.
+Можно подключить runner к удалённой платформе через обычные env
+`OPENCODE_BACKEND=cli`, `OPENCODE_BIN`, `OPENCODE_CLI_VERSION`, `PLATFORM_GRPC` и mTLS
+параметры, запустив `agent-runner` напрямую; dev launcher рассчитан на локальный API.
+
+Путь provider config и XDG-каталоги такие же, как у dev OpenCode server. CLI-процесс
+не наследует параметры платформенной БД, OIDC и Git credentials wrapper.
+Разрешены read/glob/grep/edit; прочие permissions запрещены. Raw stderr, tool payloads
+и reasoning не пересылаются в UI. Preview/summary формируются из JSON text events;
+patch вычисляет существующий Workspace. Успех требует exit code 0 и финального
+`step_finish.reason=stop`. Неполный/некорректный вывод даёт UNKNOWN.
+
+BeginOperation сохраняется до запуска CLI. Поле session ID содержит `cli-<UUID>` —
+локальный execution token wrapper, не ID сессии OpenCode. CLI не запускается повторно
+для того же operation; `--continue`, `--attach`, `--share` не используются.
+Отмена/таймаут завершают POSIX process group (TERM, затем KILL). После старта процесса
+отмена считается неподтверждённой и даёт NEEDS_ATTENTION: внешний запрос мог продолжиться.
+После аварийного SIGKILL wrapper проверьте оставшиеся процессы перед новым запуском;
+автоматического восстановления сессии и workspace нет.
+
+Совместимость JSON/stdin сверена с
+[OpenCode v1.2.27 run.ts](https://github.com/anomalyco/opencode/blob/v1.2.27/packages/opencode/src/cli/cmd/run.ts).
+На старте проверяется `--version`; для другой версии сначала проверьте CLI-контракт
+и измените `runner.cliVersion`. Реальный OpenCode/LLM smoke ещё обязателен.
+Compose продолжает использовать backend `server`: CLI-профиль предназначен для native.
+Для возврата к прежнему поведению задайте `runner.backend: "server"` (default).
+
+### Server API
+
 Остановите Compose, настройте адреса зависимостей для host. Для каждого процесса
 launcher читает settings и передаёт только его конфигурацию; source env-файлов не нужен.
 
