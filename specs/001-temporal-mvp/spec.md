@@ -42,6 +42,15 @@ Branch: `001-temporal-mvp` • Status: Ready for implementation with infrastruct
 
 ## Functional requirements
 
+### US6 — Development без Kubernetes (дополнение)
+
+По запросу пользователя поддерживаются Docker Compose и native Linux/macOS/WSL:
+одинаковые API/worker/runner, конфигурируемый workspace, HTTPS UI и mTLS runner.
+MSSQL/Temporal/OIDC — внешние prerequisites. Dev bind mounts разрешены только в
+Compose; ограничение Kubernetes PVC/hostPath сохраняется. Не добавляются Redis и
+автоматическое восстановление Python/OpenCode. Подробности: `docs/local-development.md`.
+
+
 | ID | Требование |
 | --- | --- |
 | FR-001 | Основная платформа на C#/.NET 10; официальные Temporal .NET workflows/activities |

@@ -16,6 +16,12 @@ builder.WebHost.ConfigureKestrel(k =>
 {
     k.Limits.MaxRequestBodySize = 32 * 1024;
     k.ListenAnyIP(8080, l => l.Protocols = HttpProtocols.Http1);
+    var browserCertificate = builder.Configuration["Browser:ServerCertificate"];
+    if (!string.IsNullOrEmpty(browserCertificate)) k.ListenAnyIP(8443, l =>
+    {
+        l.Protocols = HttpProtocols.Http1AndHttp2;
+        l.UseHttps(browserCertificate, builder.Configuration["Browser:ServerCertificatePassword"]);
+    });
     var path = builder.Configuration["Runner:ServerCertificate"];
     if (!string.IsNullOrEmpty(path)) k.ListenAnyIP(8081, l =>
     {

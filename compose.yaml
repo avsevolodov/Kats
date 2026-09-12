@@ -1,0 +1,62 @@
+name: kats-dev
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - path: .local/compose-api.env
+        format: raw
+    ports:
+      - "127.0.0.1:8443:8443"
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./.local/certs/api:/certs/api:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - path: .local/compose-worker.env
+        format: raw
+    volumes:
+      - ./.local/temporal:/certs/temporal:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  runner:
+    init: true
+    stop_grace_period: 60s
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    user: "${DEV_UID:?Run scripts/dev.py render compose}:${DEV_GID:?Run scripts/dev.py render compose}"
+    env_file:
+      - path: .local/compose-runner.env
+        format: raw
+    volumes:
+      - ./.local/certs/runner:/certs/runner:ro
+      - ./.local/workspace:/workspace
+      - ./.local/git-credentials:/git-credentials:ro
+    depends_on: [api, opencode]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  opencode:
+    init: true
+    stop_grace_period: 60s
+    image: "${OPENCODE_IMAGE:?Set images.opencode in .local/settings.json}"
+    user: "${DEV_UID}:${DEV_GID}"
+    entrypoint: ["opencode"]
+    command: ["serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    env_file:
+      - path: .local/compose-opencode.env
+        format: raw
+    volumes:
+      - ./.local/workspace:/workspace
+      - ./.local/opencode-data:/data
+      - ./.local/opencode-config:/config
+      - ./.local/opencode-cache:/cache
+      - ./.local/provider:/provider:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    # No published OpenCode port, no runner certs or Git credentials in this service.

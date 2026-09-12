@@ -7,3 +7,5 @@
 *.pfx
 artifacts
 .venv
+.local
+**/*.egg-info

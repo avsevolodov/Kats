@@ -1,8 +1,10 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0.401 AS build
+ARG DOTNET_SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0.100
+ARG DOTNET_RUNTIME_IMAGE=mcr.microsoft.com/dotnet/aspnet:10.0.12
+FROM ${DOTNET_SDK_IMAGE} AS build
 WORKDIR /source
 COPY . .
 RUN dotnet publish src/Platform.Worker/Platform.Worker.csproj -c Release -o /out
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.12
+FROM ${DOTNET_RUNTIME_IMAGE}
 WORKDIR /app
 COPY --from=build /out .
 USER 1654

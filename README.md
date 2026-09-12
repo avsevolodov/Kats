@@ -1,5 +1,15 @@
 # Agent Platform MVP — пакет GitHub Spec Kit
 
+## Запуск приложения
+
+Добавлены [Docker Compose и локальный запуск](docs/local-development.md):
+`python3 scripts/dev.py init`, настройка `.local/settings.json`, затем
+`python3 scripts/dev.py render compose` и
+`docker compose --env-file .local/compose.env up --build -d`.
+Native: `python3 scripts/dev.py run api|worker|opencode|runner` (по одному процессу в терминале).
+Требуются MSSQL, Temporal, OIDC и настроенный OpenCode; UI — https://localhost:8443.
+Актуальные ограничения проверки: [implementation-status.md](docs/implementation-status.md).
+
 Версия пакета: 1.0 • 12.09.2026 • Статус: спецификация для реализации, не готовое приложение.
 
 ## Зафиксированный стек

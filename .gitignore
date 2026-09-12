@@ -8,3 +8,4 @@ __pycache__/
 *.pfx
 *.key
 artifacts/
+.local/

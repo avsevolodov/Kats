@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import time
+from pathlib import Path
 import httpx
 from .core import RunnerError, PromptGuard
 
@@ -10,7 +11,7 @@ class OpenCode:
     def __init__(self, url="http://127.0.0.1:4096", transport=None):
         auth = ("opencode", os.environ["OPENCODE_SERVER_PASSWORD"]) if os.environ.get("OPENCODE_SERVER_PASSWORD") else None
         self.http = httpx.AsyncClient(base_url=url, auth=auth, transport=transport, timeout=10)
-        self.directory = "/workspace/current"
+        self.directory = str(Path(os.environ.get("WORKSPACE_ROOT", "/workspace")).resolve() / "current")
         self.session = None
         self.version = "unknown"
         self.guard = PromptGuard()

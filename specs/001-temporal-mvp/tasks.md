@@ -1,5 +1,12 @@
 # Tasks: 001-temporal-mvp
 
+## Дополнение: запуск без Kubernetes (US6)
+
+- [x] DEV001 Настраиваемый native workspace OpenCode; тест directory propagation.
+- [x] DEV002 Генератор dev CA, серверного/client сертификатов и конфигурации local/compose; OpenSSL verify, повторный init и оба render прошли.
+- [ ] DEV003 Полный Compose build/up и native E2E с реальными MSSQL, Temporal, OIDC и LLM. Файлы и launcher реализованы; live gate остаётся открытым.
+
+
 Формат `- [ ] Tnnn [P] [USn]`. `[P]` — независимая задача после общих prerequisites; не разрешение на автоматическую делегацию. Все пути относительно корня будущего repo. Истории/FR определены в spec.md. Каждая задача закрывается доказательством в docs/implementation-status.md.
 
 ## Phase 0 — Compatibility gate (до business code)

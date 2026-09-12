@@ -81,9 +81,20 @@ async def process(t, assignment, code, workspace):
 async def run():
     code = None if os.environ.get("RUNNER_MODE") == "fake" else OpenCode(os.environ.get("OPENCODE_URL", "http://127.0.0.1:4096"))
     if code:
-        await code.health()
+        # Startup readiness only: never retry submitting an operation/prompt here.
+        try:
+            async with asyncio.timeout(60):
+                while True:
+                    try:
+                        await code.health()
+                        break
+                    except Exception:
+                        await asyncio.sleep(1)
+        except TimeoutError:
+            await code.close()
+            raise RunnerError("OPENCODE_STARTUP_TIMEOUT") from None
         # Fail closed on leftover sessions after Python restart: pod recreation required.
-        response = await code.http.get("/session", params={"directory": "/workspace/current"})
+        response = await code.http.get("/session", params={"directory": code.directory})
         response.raise_for_status()
         if response.json(): raise RunnerError("LEFTOVER_SESSIONS_RECREATE_POD")
     t = Transport(os.environ["PLATFORM_GRPC"], os.environ["RUNNER_CA"], os.environ["RUNNER_CERT"], os.environ["RUNNER_KEY"], str(uuid.uuid4()), code.version if code else "fake")
