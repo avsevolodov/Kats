@@ -2,37 +2,57 @@
 @inject HttpClient Http
 @inject NavigationManager Nav
 <main>
-    <header><span class="brand">AGENT PLATFORM</span><a href="/login">Войти</a></header>
+    <header>
+        <span class="brand">AGENT PLATFORM</span>
+        <nav class="nav">
+            @if (isAdmin) { <a href="/repositories">Репозитории</a> }
+            @if (signedIn) { <a href="/logout">Выйти</a> } else { <a href="/login">Войти</a> }
+        </nav>
+    </header>
     <h1>Задачи разработки</h1>
     <p class="muted">Опишите изменение. Агент подготовит результат и patch для проверки.</p>
     @if (error != null) { <p role="alert" class="error">@error</p> }
     <section>
         <h2>Новая задача</h2>
         <label>Репозиторий<select @bind="repository"><option value="@Guid.Empty">Выберите репозиторий</option>@foreach (var repo in repositories) { <option value="@repo.RepositoryId">@repo.DisplayName</option> }</select></label>
-        <label>Commit<input @bind="commit" placeholder="Полный hash исходного commit" /></label>
+        <label>Ветка или commit<input @bind="commit" placeholder="main или полный SHA" /></label>
         <label>Что нужно изменить<textarea @bind="prompt" rows="5" maxlength="16384"></textarea></label>
-        <button disabled="@busy" @onclick="Start">@(pending == null ? "Запустить" : "Повторить отправку")</button>
+        <button disabled="@(busy || !signedIn)" @onclick="Start">@(pending == null ? "Запустить" : "Повторить отправку")</button>
         @if (pending != null) { <small>Повторная отправка использует прежний идентификатор задачи.</small> }
     </section>
-    <section><h2>История запусков</h2><button class="secondary" @onclick="Load">Обновить</button>
-    @if (runs.Count == 0) { <p class="muted">Запусков пока нет.</p> }
+    <section><h2>История запусков</h2><button class="secondary" @onclick="Load" disabled="@(!signedIn)">Обновить</button>
+    @if (runs.Count == 0) { <p class="muted">@(signedIn ? "Запусков пока нет." : "Войдите, чтобы увидеть историю.")</p> }
     @foreach (var run in runs) { <a class="run" href="@($"/runs/{run.RunId}")"><span>@run.CreatedAt.ToLocalTime().ToString("g")</span><code>@run.BaseCommit[..Math.Min(10, run.BaseCommit.Length)]</code><strong>@run.Status</strong></a> }
     </section>
 </main>
 @code {
-    record Repository(Guid RepositoryId, string DisplayName);
     record Token(string RequestToken);
-    List<Repository> repositories = []; List<RunView> runs = [];
-    Guid repository; string commit = "", prompt = ""; string? error; bool busy; StartRun? pending;
+    List<RepositoryView> repositories = []; List<RunView> runs = [];
+    Guid repository; string commit = "", prompt = ""; string? error; bool busy; bool signedIn; bool isAdmin; StartRun? pending;
     protected override async Task OnInitializedAsync() => await Load();
     async Task Load()
     {
         try
         {
-            var repos = await Http.GetFromJsonAsync<JsonElement>("api/v1/repositories");
-            repositories = repos.GetProperty("items").Deserialize<List<Repository>>(Wire.Json) ?? [];
+            using var reposResponse = await Http.GetAsync("api/v1/repositories");
+            if (reposResponse.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                signedIn = false; isAdmin = false;
+                repositories = [];
+                runs = [];
+                error = "Войдите в систему, чтобы видеть репозитории и задачи.";
+                return;
+            }
+            reposResponse.EnsureSuccessStatusCode();
+            signedIn = true;
+            await using var reposStream = await reposResponse.Content.ReadAsStreamAsync();
+            var repos = await JsonSerializer.DeserializeAsync<JsonElement>(reposStream, Wire.Json);
+            repositories = repos.GetProperty("items").Deserialize<List<RepositoryView>>(Wire.Json) ?? [];
+            var me = await Http.GetFromJsonAsync<SecurityMe>("api/v1/security/me");
+            isAdmin = me?.IsAdmin == true;
             var list = await Http.GetFromJsonAsync<JsonElement>("api/v1/runs");
-            runs = list.GetProperty("items").Deserialize<List<RunView>>(Wire.Json) ?? []; error = null;
+            runs = list.GetProperty("items").Deserialize<List<RunView>>(Wire.Json) ?? [];
+            error = null;
         }
         catch { error = "Не удалось загрузить данные. Проверьте подключение и войдите в систему."; }
     }
@@ -50,6 +70,7 @@
             {
                 error = $"Запрос отклонён ({(int)result.StatusCode}). Проверьте поля и доступ.";
                 if ((int)result.StatusCode is >= 400 and < 500) pending = null;
+                if (result.StatusCode == HttpStatusCode.Unauthorized) signedIn = false;
                 return;
             }
             var accepted = await result.Content.ReadFromJsonAsync<CommandAccepted>(); Nav.NavigateTo($"/runs/{accepted!.RunId}");

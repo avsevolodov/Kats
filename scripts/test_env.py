@@ -37,16 +37,27 @@ def configure():
     realm = {
         "realm": "kats-dev", "enabled": True, "sslRequired": "none",
         "registrationAllowed": False, "resetPasswordAllowed": False,
+        "roles": {"realm": [{"name": "admin", "description": "Repository allowlist admin"}]},
         "clients": [{"clientId": "kats-local", "enabled": True,
             "protocol": "openid-connect", "publicClient": False, "secret": c["client"],
             "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
             "redirectUris": ["https://localhost:8443/signin-oidc"],
             "webOrigins": ["https://localhost:8443"],
-            "attributes": {"pkce.code.challenge.method": "S256"}}],
-        "users": [{"username": user, "enabled": True, "emailVerified": True,
-                   "email": user + "@kats.invalid", "firstName": user, "lastName": "Test",
-                   "credentials": [{"type": "password", "value": c[user], "temporary": False}]}
-                  for user in ("developer", "other")]}
+            "attributes": {"pkce.code.challenge.method": "S256"},
+            "protocolMappers": [{
+                "name": "realm-roles", "protocol": "openid-connect",
+                "protocolMapper": "oidc-usermodel-realm-role-mapper", "consentRequired": False,
+                "config": {"multivalued": "true", "claim.name": "roles", "jsonType.label": "String",
+                           "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}}]}],
+        "users": [
+            {"username": "admin", "enabled": True, "emailVerified": True,
+             "email": "admin@kats.invalid", "firstName": "admin", "lastName": "Test",
+             "credentials": [{"type": "password", "value": c["admin"], "temporary": False}],
+             "realmRoles": ["admin"]},
+            *[{"username": user, "enabled": True, "emailVerified": True,
+               "email": user + "@kats.invalid", "firstName": user, "lastName": "Test",
+               "credentials": [{"type": "password", "value": c[user], "temporary": False}]}
+              for user in ("developer", "other")]]}
     save(INFRA / "realm/kats-dev-realm.json", realm, True)
     # Only locally generated hex-based secrets are interpolated; no untrusted SQL inputs.
     password = c["database"].replace("'", "''")
@@ -62,8 +73,8 @@ IF USER_ID(N'kats_dev') IS NULL CREATE USER kats_dev FOR LOGIN kats_dev;
 IF IS_ROLEMEMBER('db_datareader','kats_dev') <> 1 ALTER ROLE db_datareader ADD MEMBER kats_dev;
 IF IS_ROLEMEMBER('db_datawriter','kats_dev') <> 1 ALTER ROLE db_datawriter ADD MEMBER kats_dev;
 IF NOT EXISTS(SELECT 1 FROM dbo.Repositories WHERE Id='{REPOSITORY_ID}')
- INSERT INTO dbo.Repositories(Id,DisplayName,CloneUrl,CredentialRef,Enabled)
- VALUES('{REPOSITORY_ID}',N'Fake smoke fixture',N'https://example.invalid/kats-fixture.git',N'',1);
+ INSERT INTO dbo.Repositories(Id,DisplayName,CloneUrl,CredentialRef,AuthKind,ProviderHint,Enabled)
+ VALUES('{REPOSITORY_ID}',N'Fake smoke fixture',N'https://example.invalid/kats-fixture.git',N'',N'Anonymous',N'Generic',1);
 GO
 """
     dev.write_private(INFRA / "bootstrap/init.sql", sql)

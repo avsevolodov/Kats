@@ -3,12 +3,16 @@
 @inject HttpClient Http
 @inject NavigationManager Nav
 <main>
-<header><a href="/">← Все задачи</a><span class="brand">AGENT PLATFORM</span></header>
+<header>
+    <a href="/">← Все задачи</a>
+    <span class="brand">AGENT PLATFORM</span>
+    @if (signedIn) { <a href="/logout">Выйти</a> } else { <a href="/login">Войти</a> }
+</header>
 <h1>Выполнение задачи</h1>
 @if (run != null)
 {
     <p><strong>@run.Status</strong> · <span class="muted">@connection</span></p>
-    <p>Исходный commit: <code>@run.BaseCommit</code></p>
+    <p>Исходная база: <code>@run.BaseCommit</code></p>
     @if (!States.Terminal(run.Status)) { <button class="secondary" @onclick="Cancel">Отменить</button> }
     @if (run.Status == "NEEDS_ATTENTION") { <p class="error">Исполнитель потерян или результат остановки неизвестен. Автоматический повтор не выполняется. Создайте новую задачу после проверки.</p> }
     @if (run.ErrorCode != null) { <p role="alert">@run.ErrorCode</p> }
@@ -21,9 +25,27 @@
     [Parameter] public Guid Id { get; set; }
     RunView? run; string output = "", connection = "Подключение…"; string? error; long cursor;
     readonly CancellationTokenSource stop = new(); Task? stream; System.Net.WebSockets.ClientWebSocket? socket;
-    Guid cancelId = Guid.NewGuid();
+    Guid cancelId = Guid.NewGuid(); bool signedIn;
     protected override async Task OnInitializedAsync() { await Refresh(); stream = ReadStream(); }
-    async Task Refresh() { try { run = await Http.GetFromJsonAsync<RunView>($"api/v1/runs/{Id}", stop.Token); } catch { error = "Не удалось получить состояние задачи. Войдите в систему или повторите позже."; } }
+    async Task Refresh()
+    {
+        try
+        {
+            using var response = await Http.GetAsync($"api/v1/runs/{Id}", stop.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                signedIn = false;
+                error = "Войдите в систему, чтобы открыть задачу.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            signedIn = true;
+            await using var body = await response.Content.ReadAsStreamAsync(stop.Token);
+            run = await JsonSerializer.DeserializeAsync<RunView>(body, Wire.Json, stop.Token);
+            error = null;
+        }
+        catch { error = "Не удалось получить состояние задачи. Войдите в систему или повторите позже."; }
+    }
     async Task Cancel()
     {
         try

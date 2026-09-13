@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 <ItemGroup>
 <ProjectReference Include="../Platform.Application/Platform.Application.csproj" />
+<ProjectReference Include="../Platform.Contracts/Platform.Contracts.csproj" />
 <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
 <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
 <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="All" />

@@ -27,14 +27,15 @@ uv sync --locked
 uv run --locked scripts/test_env.py up
 ```
 
-Команда создаёт локальные сертификаты, уникальные пароли, realm/client и двух
-пользователей, запускает контейнеры с ожиданием healthchecks, создаёт БД/таблицы
+Команда создаёт локальные сертификаты, уникальные пароли, realm/client и трёх
+пользователей (`admin` с realm role admin, `developer`, `other`), запускает контейнеры с ожиданием healthchecks, создаёт БД/таблицы
 и SQL login `kats_dev` с правами чтения/записи. SA используется только для bootstrap.
 В таблицу репозиториев добавляется **Fake smoke fixture**; его URL фиктивный,
-fake-runner не выполняет Git fetch и не вызывает модель.
+fake-runner не выполняет Git fetch и не вызывает модель. Управление allowlist —
+UI `/repositories` под `admin`.
 
 Конфигурация тестового профиля: `.local/test-settings.json`.
-Пароли: `.local/test-infra/credentials.json` — `developer`, `other`, `admin`.
+Пароли: `.local/test-infra/credentials.json` — `admin`, `developer`, `other` (Keycloak bootstrap admin совпадает с паролем пользователя `admin`).
 Открывайте этот файл локально; не копируйте его в тикеты/логи. Повторный `up`
 сохраняет пароли и пользовательские настройки. Обычный `.local/settings.json`
 не перезаписывается. Каталог `.local` исключён из Git и Docker build context.
@@ -96,7 +97,7 @@ uv run --locked pytest tests/runner tests/dev -q
 версию OpenCode и настройте provider по [инструкции CLI](local-development.md).
 В `.local/test-settings.json` измените `runner.mode` на `real`, оставьте `backend=cli`,
 задайте provider/model и путь `local.opencode`. Добавьте реальный разрешённый
-репозиторий в MSSQL (пример SQL в той же инструкции), укажите полный commit.
+репозиторий в MSSQL (пример SQL в той же инструкции), укажите ветку или полный commit.
 `Fake smoke fixture` для этого режима не подходит. Затем запустите runner снова.
 API/worker не требуют смены режима и могут продолжать работать.
 

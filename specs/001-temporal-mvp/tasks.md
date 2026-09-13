@@ -57,6 +57,7 @@ Exit: один и тот же Run доступен через любую API rep
 
 ## Phase 4 — Blazor UI (depends T017–T021)
 
+- [ ] DEV007 Admin UI/API для глобальных repositories: Anonymous/PAT (GitHub), CredentialCipher через Data Protection, RequireAdmin CRUD, FetchGitCredential для runner; secrets не в list/Assignment/logs. FR-012, FR-013.
 - [ ] T022 [US1] `Platform.Ui/Pages/Runs`: list/create, repository selector, commit validation, prompt validation, generating/reusing CommandId until known acceptance. FR-002, FR-004.
 - [ ] T023 [US2] Detail page и stream client: run/operation statuses, escaped preview, cursor apply/dedup, reconnect banner, truncated/expired history. FR-002, FR-007.
 - [ ] T024 [US3] Cancel UI и artifact download/summary/patch/base commit. NEEDS_ATTENTION поясняет потерю runner и явный новый Run, не автоматический Retry. FR-002, FR-009, FR-010, FR-011.

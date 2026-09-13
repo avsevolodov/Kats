@@ -46,17 +46,21 @@ chmod +x scripts/git-askpass.py
 Выполните `sql/001-initial.sql` в выбранной БД через SSMS/sqlcmd до запуска API/worker.
 Учётная запись приложения должна иметь права на чтение/изменение таблиц; schema setup
 выполняется отдельно пользователем с DDL правами. Скрипт создания таблиц повторяемый.
-Добавьте разрешённый репозиторий (используйте собственные URL и ID):
+Добавьте разрешённый репозиторий через UI `/repositories` под пользователем с ролью
+`admin` (Anonymous или PAT, в т.ч. GitHub), либо SQL:
 
 ```sql
-INSERT INTO dbo.Repositories (Id, DisplayName, CloneUrl, CredentialRef, Enabled)
-VALUES (NEWID(), N'Sample', N'https://github.com/your-account/sample.git', N'', 1);
+INSERT INTO dbo.Repositories (Id, DisplayName, CloneUrl, CredentialRef, AuthKind, ProviderHint, Enabled)
+VALUES (NEWID(), N'Sample', N'https://github.com/your-account/sample.git', N'', N'Anonymous', N'GitHub', 1);
 ```
 
-Для приватного repo `CredentialRef` — имя файла в `.local/git-credentials`, например `sample`;
+PAT из admin UI хранится в `CredentialCipher` (ASP.NET Data Protection) и выдаётся
+runner только через `FetchGitCredential`. Legacy: для приватного repo без cipher
+`CredentialRef` — имя файла в `.local/git-credentials`, например `sample`;
 содержимое файла: JSON с `username` и `password` (read-only token), права `600`.
-В UI укажите полный commit SHA доступного репозитория. Runner отклоняет репозитории
+В UI укажите ветку (`main`) или полный commit SHA доступного репозитория. Runner отклоняет репозитории
 с `.opencode`, `opencode.json`, `opencode.jsonc`, symlinks, submodules и LFS по правилам MVP.
+Host clone URL должен входить в `Git:AllowedHosts` / `runner.allowedHosts` (например `github.com`).
 
 Положите проверенный provider configuration в `.local/provider/opencode.json`.
 Используйте те же provider/model и ограничения инструментов, что в Kubernetes Secret

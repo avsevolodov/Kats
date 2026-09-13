@@ -8,6 +8,9 @@ public sealed class RepositoryRow
     public string DisplayName { get; set; } = "";
     public string CloneUrl { get; set; } = "";
     public string CredentialRef { get; set; } = "";
+    public string AuthKind { get; set; } = "Anonymous";
+    public string ProviderHint { get; set; } = "Generic";
+    public byte[]? CredentialCipher { get; set; }
     public bool Enabled { get; set; } = true;
 }
 public sealed class RunRow
@@ -101,6 +104,8 @@ public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<RepositoryRow>().HasKey(x => x.Id);
+        b.Entity<RepositoryRow>().Property(x => x.AuthKind).HasMaxLength(32);
+        b.Entity<RepositoryRow>().Property(x => x.ProviderHint).HasMaxLength(32);
         b.Entity<RunRow>().HasKey(x => x.Id);
         b.Entity<RunRow>().Property(x => x.Owner).HasMaxLength(200).UseCollation("Latin1_General_100_BIN2");
         b.Entity<RunRow>().HasIndex(x => new { x.Owner, x.CreatedAt });

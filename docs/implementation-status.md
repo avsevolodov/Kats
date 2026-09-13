@@ -97,3 +97,55 @@ UseBlazorFrameworkFiles удалён. Framework/fingerprinted assets обслу�
 MapStaticAssets, обычные файлы и SPA fallback сохраняются. Это исправление предыдущего
 изменения, а не проблема Windows paths или MSSQL.
 Evidence: diff check; полный build/browser smoke в текущей среде не подтверждён.
+
+## Correction: WASM Hot Reload 404 on Debug startup
+
+Пользовательский Debug на https://localhost:8443 показал fatal 404 на
+`/_content/Microsoft.DotNet.HotReload.WebAssembly.Browser/*.lib.module.js`:
+MapStaticAssets недостаточен для hosted UI с `ReferenceOutputAssembly=false`.
+В Platform.Ui задано `WasmEnableHotReload=false`, чтобы Debug boot config не
+требовал этот initializer. Favicon 404 подавлен пустым `rel=icon` в index.html.
+MapStaticAssets для `/_framework/` сохранён.
+
+Evidence: правка csproj/index.html/docs. Live `dotnet build` в агентской Windows-среде
+остановлен: global.json требует SDK 10.0.100, установлены 9.0.x / 10.0.303 / 10.0.400.
+Browser/smoke_ui.py после Rebuild Api+Ui — на машине разработчика с pinned SDK.
+Не считать mock live pass.
+
+## Correction: login button after OIDC
+
+После Keycloak cookie сессия работала, но UI всегда показывал «Войти»: ссылка
+была статической. Runs/Run определяют вход по 401/200 API и показывают
+«Выйти» (`/logout` — SignOut cookie + OIDC) либо «Войти». Кнопка запуска
+блокируется без сессии.
+
+Evidence: правки Program.cs и Blazor pages; live browser smoke на машине
+разработчика после Rebuild.
+
+## Correction: base ref accepts branch
+
+Пользовательский Start с именем ветки получал INVALID_COMMIT: валидация и runner
+требовали только SHA. По запросу UX `baseCommit` принимает полный SHA или безопасный
+git ref (ветка/tag). Runner fetch/checkout tip; COMMIT_MISMATCH только для SHA.
+OpenAPI/UI/tests обновлены. Это ослабление FR-012 «только immutable commit» —
+зафиксировано как осознанное отклонение: tip ветки фиксируется в момент fetch,
+в Run сохраняется запрошенный ref.
+
+Evidence: unit test ValidBaseRef/main и reject `../evil`; Python workspace path
+изменён; live git fetch ветки — на стенде разработчика.
+
+## Admin repositories + PAT credentials
+
+Глобальный allowlist репозиториев управляется только admin: OpenAPI
+POST/PUT/DELETE `/api/v1/repositories`, UI `/repositories`, OIDC role `admin`
+(`Security:AdminRole`). GET list без секретов; PAT в `CredentialCipher` через
+Data Protection (`GitCredentials.v1`). Assignment несёт `auth_kind`; runner
+запрашивает `FetchGitCredential` и удаляет temp askpass после fetch. Legacy
+`CredentialRef` file mount сохранён. Dev realm: пользователь `admin` + mapper
+`roles`. Kerberos не реализовывался.
+
+Evidence: OpenAPI/proto/SQL/data-model обновлены; unit Rules host/credential
+(15 Platform.Tests checks); Python wipe/anonymous + realm tests (5 passed via
+`C:\Program Files\uv\uv.exe`); Infrastructure/Api/Worker build succeeded with
+installed SDK roll-forward. Live MSSQL/OIDC/admin UI и real GitHub PAT clone
+в этой среде не подтверждены.

@@ -33,6 +33,9 @@ def export_appsettings(settings):
             node[parts[-1]] = value
         if name == "api":
             values["Runner"]["AllowedThumbprints"] = list(values["Runner"]["AllowedThumbprints"].values())
+            hosts = values.get("Git", {}).get("AllowedHosts")
+            if isinstance(hosts, dict):
+                values.setdefault("Git", {})["AllowedHosts"] = [hosts[k] for k in sorted(hosts, key=lambda x: int(x))]
             values.setdefault("Oidc", {})["AllowLoopbackHttp"] = settings["oidc"].get("allowLoopbackHttp", False)
         project = "Platform.Api" if name == "api" else "Platform.Worker"
         write_private(ROOT / "src" / project / "appsettings.Development.json", json.dumps(values, indent=2) + "\n")
@@ -106,9 +109,12 @@ def environments(settings, mode):
            "Runner__AllowedThumbprints__0": thumb,
            "Security__PublicOrigin": "https://localhost:8443",
            "Security__DataProtectionCertificate": path("certs/api/server.pfx", "/certs/api/server.pfx"),
+           "Security__AdminRole": "admin",
            "Oidc__Authority": settings["oidc"]["authority"],
            "Oidc__ClientId": settings["oidc"]["clientId"],
            "Oidc__ClientSecret": settings["oidc"]["clientSecret"]}
+    for index, host in enumerate(h.strip() for h in settings["runner"]["allowedHosts"].split(",") if h.strip()):
+        api[f"Git__AllowedHosts__{index}"] = host
     if settings["oidc"].get("allowLoopbackHttp", False):
         api["Oidc__AllowLoopbackHttp"] = "true"
     worker = {**database, "Temporal__Endpoint": settings["temporal"]["endpoint"],

@@ -1,13 +1,30 @@
 using System.Data;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using AgentPlatform.Contracts.Runner.V1;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 namespace AgentPlatform;
 
 // Deliberately serialized short writes for the ten-run MVP. No network calls while holding the lock.
-public sealed class SqlStore(IDbContextFactory<PlatformDb> factory)
+public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtectionProvider protection, IConfiguration config)
 {
+    readonly IDataProtector protector = protection.CreateProtector("GitCredentials.v1");
+    IReadOnlyList<string> AllowedHosts
+    {
+        get
+        {
+            var children = config.GetSection("Git:AllowedHosts").GetChildren().Select(x => x.Value).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).ToArray();
+            if (children.Length > 0) return children;
+            var raw = config["Git:AllowedHosts"];
+            if (!string.IsNullOrWhiteSpace(raw))
+                return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return ["github.com"];
+        }
+    }
+
     public async Task<T> Write<T>(Func<PlatformDb, DateTime, Task<T>> action)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -21,6 +38,13 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory)
     {
         db.Events.Add(new() { RunId = run.Id, Sequence = run.NextSequence++, Kind = kind, Payload = Wire.Serialize(payload), CreatedAt = now });
         run.UpdatedAt = now;
+    }
+    static RepositoryView RepoView(RepositoryRow x) => new(x.Id, x.DisplayName, x.CloneUrl, x.AuthKind, x.ProviderHint, x.CredentialCipher is { Length: > 0 } || !string.IsNullOrEmpty(x.CredentialRef), x.Enabled);
+    byte[]? ProtectPat(UpsertRepository request)
+    {
+        if (request.AuthKind != "Pat" || string.IsNullOrEmpty(request.Password)) return null;
+        var json = Wire.Serialize(new { username = request.Username!.Trim(), password = request.Password });
+        return protector.Protect(Encoding.UTF8.GetBytes(json));
     }
     public Task<CommandAccepted> Start(string owner, StartRun request)
     {
@@ -57,11 +81,59 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory)
     });
     static async Task<RunRow> Owned(PlatformDb db, string owner, Guid id) =>
         await db.Runs.SingleOrDefaultAsync(x => x.Id == id && x.Owner == owner) ?? throw new PlatformException("NOT_FOUND", 404);
-    public async Task<IReadOnlyList<object>> Repositories()
+    public async Task<IReadOnlyList<RepositoryView>> Repositories(bool includeDisabled = false)
     {
         await using var db = await factory.CreateDbContextAsync();
-        return (await db.Repositories.Where(x => x.Enabled).ToListAsync()).Select(x => (object)new { repositoryId = x.Id, displayName = x.DisplayName }).ToList();
+        var q = db.Repositories.AsQueryable();
+        if (!includeDisabled) q = q.Where(x => x.Enabled);
+        return (await q.OrderBy(x => x.DisplayName).ToListAsync()).Select(RepoView).ToList();
     }
+    public Task<RepositoryView> CreateRepository(UpsertRepository request)
+    {
+        var url = Rules.ValidateRepository(request, AllowedHosts, requireCredential: request.AuthKind == "Pat");
+        var cipher = ProtectPat(request);
+        return Write(async (db, _) =>
+        {
+            var row = new RepositoryRow
+            {
+                Id = Guid.NewGuid(),
+                DisplayName = request.DisplayName.Trim(),
+                CloneUrl = url.AbsoluteUri,
+                AuthKind = request.AuthKind,
+                ProviderHint = request.ProviderHint,
+                CredentialCipher = cipher,
+                CredentialRef = "",
+                Enabled = true
+            };
+            db.Repositories.Add(row);
+            return RepoView(row);
+        });
+    }
+    public Task<RepositoryView> UpdateRepository(Guid id, UpsertRepository request)
+    {
+        var url = Rules.ValidateRepository(request, AllowedHosts, requireCredential: false);
+        var replace = request.AuthKind == "Pat" && !string.IsNullOrEmpty(request.Password);
+        var cipher = replace ? ProtectPat(request) : null;
+        return Write(async (db, _) =>
+        {
+            var row = await db.Repositories.FindAsync(id) ?? throw new PlatformException("NOT_FOUND", 404);
+            if (request.AuthKind == "Pat" && !replace)
+                Rules.Require(row.CredentialCipher is { Length: > 0 } || !string.IsNullOrEmpty(row.CredentialRef), "CREDENTIAL_REQUIRED", 400);
+            row.DisplayName = request.DisplayName.Trim();
+            row.CloneUrl = url.AbsoluteUri;
+            row.AuthKind = request.AuthKind;
+            row.ProviderHint = request.ProviderHint;
+            if (request.AuthKind == "Anonymous") { row.CredentialCipher = null; row.CredentialRef = ""; }
+            else if (replace) { row.CredentialCipher = cipher; row.CredentialRef = ""; }
+            return RepoView(row);
+        });
+    }
+    public Task DisableRepository(Guid id) => Write(async (db, _) =>
+    {
+        var row = await db.Repositories.FindAsync(id) ?? throw new PlatformException("NOT_FOUND", 404);
+        row.Enabled = false;
+        return true;
+    });
     public async Task<IReadOnlyList<RunView>> List(string owner)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -152,7 +224,40 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory)
         }
         else Rules.Require(op.LeaseUntil > now, "LEASE_EXPIRED");
         var repo = await db.Repositories.SingleAsync(x => x.Id == r.RepositoryId);
-        return new Assignment { Key = new() { OperationId = op.Id.ToString(), BootId = boot, Fence = op.Fence }, RunId = r.Id.ToString(), RepositoryId = repo.Id.ToString(), CloneUrl = repo.CloneUrl, CredentialRef = repo.CredentialRef, BaseCommit = r.BaseCommit, Prompt = r.Prompt, DefinitionVersion = "mvp-1", LeaseUntilUnixMs = Epoch(op.LeaseUntil!.Value), DeadlineUnixMs = Epoch(r.Deadline) };
+        return new Assignment
+        {
+            Key = new() { OperationId = op.Id.ToString(), BootId = boot, Fence = op.Fence },
+            RunId = r.Id.ToString(),
+            RepositoryId = repo.Id.ToString(),
+            CloneUrl = repo.CloneUrl,
+            CredentialRef = repo.CredentialRef,
+            AuthKind = repo.AuthKind.ToLowerInvariant(),
+            BaseCommit = r.BaseCommit,
+            Prompt = r.Prompt,
+            DefinitionVersion = "mvp-1",
+            LeaseUntilUnixMs = Epoch(op.LeaseUntil!.Value),
+            DeadlineUnixMs = Epoch(r.Deadline)
+        };
+    });
+    public Task<GitCredential> FetchGitCredential(string workload, OperationKey key) => Write(async (db, now) =>
+    {
+        var op = await Bound(db, workload, key);
+        Live(op, now);
+        Rules.Require(op.Status is "LEASED" or "RUNNING", "FENCED", 403);
+        var r = await db.Runs.SingleAsync(x => x.Id == op.RunId);
+        var repo = await db.Repositories.SingleAsync(x => x.Id == r.RepositoryId);
+        if (repo.AuthKind == "Anonymous") return new GitCredential { AuthKind = "anonymous" };
+        Rules.Require(repo.AuthKind == "Pat", "INVALID_AUTH_KIND", 400);
+        Rules.Require(repo.CredentialCipher is { Length: > 0 }, "CREDENTIAL_MISSING", 400);
+        var cipher = repo.CredentialCipher!;
+        var json = Encoding.UTF8.GetString(protector.Unprotect(cipher));
+        using var doc = JsonDocument.Parse(json);
+        return new GitCredential
+        {
+            AuthKind = "pat",
+            Username = doc.RootElement.GetProperty("username").GetString() ?? "",
+            Password = doc.RootElement.GetProperty("password").GetString() ?? ""
+        };
     });
     static long Epoch(DateTime time) => new DateTimeOffset(DateTime.SpecifyKind(time, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
     static async Task<OperationRow> Bound(PlatformDb db, string workload, OperationKey key)

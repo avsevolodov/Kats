@@ -1,5 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
-<PropertyGroup><RootNamespace>AgentPlatform.Ui</RootNamespace></PropertyGroup><ItemGroup>
-<ProjectReference Include="../Platform.Contracts/Platform.Contracts.csproj" />
-<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
-</ItemGroup></Project>
+<PropertyGroup>
+  <RootNamespace>AgentPlatform.Ui</RootNamespace>
+  <!-- Hosted Debug: Hot Reload JS initializer is a fingerprinted NuGet asset that
+       the API host does not reliably serve with ReferenceOutputAssembly=false. -->
+  <WasmEnableHotReload>false</WasmEnableHotReload>
+</PropertyGroup>
+<ItemGroup>
+  <ProjectReference Include="../Platform.Contracts/Platform.Contracts.csproj" />
+  <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+</ItemGroup>
+</Project>

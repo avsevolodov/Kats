@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 var builder = WebApplication.CreateBuilder(args);
 if (builder.Environment.IsDevelopment()) builder.WebHost.UseStaticWebAssets();
@@ -50,6 +51,7 @@ var protection = builder.Services.AddDataProtection().SetApplicationName("AgentP
 var keyPath = builder.Configuration["Security:DataProtectionCertificate"];
 if (!string.IsNullOrEmpty(keyPath)) protection.ProtectKeysWithCertificate(X509CertificateLoader.LoadPkcs12FromFile(keyPath, builder.Configuration["Security:DataProtectionPassword"]));
 else if (!builder.Environment.IsDevelopment()) throw new InvalidOperationException("Data Protection encryption certificate required");
+var adminRole = builder.Configuration["Security:AdminRole"] ?? "admin";
 builder.Services.AddAuthentication(o => { o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme; o.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme; })
     .AddCookie(o =>
     {
@@ -67,9 +69,17 @@ builder.Services.AddAuthentication(o => { o.DefaultScheme = CookieAuthentication
                 throw new InvalidOperationException("HTTP OIDC is restricted to Development loopback authorities");
             o.RequireHttpsMetadata = false;
         }
-        o.ResponseType = "code"; o.UsePkce = true; o.SaveTokens = false; o.MapInboundClaims = false; o.GetClaimsFromUserInfoEndpoint = false;
+        o.ResponseType = OpenIdConnectResponseType.Code; o.UsePkce = true; o.SaveTokens = false; o.MapInboundClaims = false; o.GetClaimsFromUserInfoEndpoint = false;
+        o.TokenValidationParameters.RoleClaimType = "roles";
+        o.Events.OnTokenValidated = context =>
+        {
+            if (context.Principal?.Identity is not ClaimsIdentity identity) return Task.CompletedTask;
+            foreach (var claim in context.Principal.FindAll("roles").ToList())
+                if (!identity.HasClaim(ClaimTypes.Role, claim.Value)) identity.AddClaim(new Claim(ClaimTypes.Role, claim.Value));
+            return Task.CompletedTask;
+        };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(o => o.AddPolicy("Admin", p => p.RequireRole(adminRole)));
 var app = builder.Build();
 app.UseForwardedHeaders();
 app.Use(async (context, next) =>
@@ -91,10 +101,34 @@ app.MapStaticAssets().AllowAnonymous();
 app.MapGet("/health/live", () => Results.Ok(new { status = "alive" }));
 app.MapGet("/health/ready", async (IDbContextFactory<PlatformDb> factory) => { await using var db = await factory.CreateDbContextAsync(); return await db.Database.CanConnectAsync() ? Results.Ok() : Results.StatusCode(503); });
 app.MapGet("/login", () => Results.Challenge(new AuthenticationProperties { RedirectUri = "/" }, [OpenIdConnectDefaults.AuthenticationScheme]));
+app.MapGet("/logout", async (HttpContext c) =>
+{
+    await c.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    await c.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
+});
 static string Owner(HttpContext c) => c.User.FindFirstValue("sub") ?? throw new PlatformException("UNAUTHENTICATED", 401);
+static bool IsAdmin(HttpContext c, string role) => c.User.IsInRole(role);
 var api = app.MapGroup("/api/v1").RequireAuthorization();
 api.MapGet("/security/antiforgery", (HttpContext c, IAntiforgery a) => new { requestToken = a.GetAndStoreTokens(c).RequestToken, headerName = "X-CSRF-TOKEN" });
+api.MapGet("/security/me", (HttpContext c) => Results.Ok(new SecurityMe(Owner(c), IsAdmin(c, adminRole))));
 api.MapGet("/repositories", async (SqlStore s) => Results.Ok(new { items = await s.Repositories() }));
+api.MapPost("/repositories", async (UpsertRepository body, HttpContext c, IAntiforgery a, SqlStore s) =>
+{
+    await a.ValidateRequestAsync(c);
+    var created = await s.CreateRepository(body);
+    return Results.Created($"/api/v1/repositories/{created.RepositoryId}", created);
+}).RequireAuthorization("Admin");
+api.MapPut("/repositories/{id:guid}", async (Guid id, UpsertRepository body, HttpContext c, IAntiforgery a, SqlStore s) =>
+{
+    await a.ValidateRequestAsync(c);
+    return Results.Ok(await s.UpdateRepository(id, body));
+}).RequireAuthorization("Admin");
+api.MapDelete("/repositories/{id:guid}", async (Guid id, HttpContext c, IAntiforgery a, SqlStore s) =>
+{
+    await a.ValidateRequestAsync(c);
+    await s.DisableRepository(id);
+    return Results.NoContent();
+}).RequireAuthorization("Admin");
 api.MapPost("/runs", async (StartRun r, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); var result = await s.Start(Owner(c), r); return Results.Accepted(result.StatusUrl, result); });
 api.MapGet("/runs", async (HttpContext c, SqlStore s) => Results.Ok(new { items = await s.List(Owner(c)), nextCursor = (string?)null }));
 api.MapGet("/runs/{id:guid}", async (Guid id, HttpContext c, SqlStore s) => await s.Get(Owner(c), id));

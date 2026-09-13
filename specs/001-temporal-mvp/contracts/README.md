@@ -4,9 +4,9 @@
 
 Protocol version 1. UUID передаются canonical lowercase строкой, timestamps epoch milliseconds UTC, sequence/fence — 64-bit. JSON browser cursor/fence передаются decimal string, чтобы не зависеть от точности JavaScript number. SQL и C# используют bigint/long.
 
-Runner WorkChannel long-lived duplex: Hello первым, затем Claim/Resume, Begin, Heartbeat, Output, Complete. Workload identity из mTLS, BootId генерируется при старте Python процесса и не восстанавливается на другом процессе. Gateway не доверяет self-declared identity.
+Runner WorkChannel long-lived duplex: Hello первым, затем Claim/Resume, Begin, Heartbeat, Output, Complete, FetchGitCredential. Workload identity из mTLS, BootId генерируется при старте Python процесса и не восстанавливается на другом процессе. Gateway не доверяет self-declared identity.
 
-Assignment выдаётся только после committed claim. Begin переводит operation в RUNNING и разрешает prompt после AckPersisted. Начало prompt не равно записи Begin: если процесс упал между ними, всё равно UNKNOWN, не автоматический retry.
+Assignment выдаётся только после committed claim и **не содержит** Git secrets (`auth_kind` + optional legacy `credential_ref`). FetchGitCredential по OperationKey возвращает PAT material только для LEASED/RUNNING с совпадающим BootId/Fence; Anonymous — пустой ответ. Begin переводит operation в RUNNING и разрешает prompt после AckPersisted. Начало prompt не равно записи Begin: если процесс упал между ними, всё равно UNKNOWN, не автоматический retry.
 
 Output и Complete используют одну последовательность ProducerSequence; Begin/Heartbeat/Resume имеют MessageId, но не потребляют producer sequence. Повтор message с тем же ID и изменённым payload — конфликт. Lease и state проверяются на каждом изменяющем сообщении, включая HTTP/DB error recovery.
 

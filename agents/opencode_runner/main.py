@@ -50,7 +50,7 @@ async def process(t, assignment, code, workspace):
                 await emit(f"Шаг {i+1}\n")
             summary = "Fake runner completed. No model was called."
         else:
-            await workspace.prepare(assignment)
+            await workspace.prepare(assignment, t)
             session = await code.create()
             ack = await t.request("begin", pb.BeginOperation(key=key, opencode_session_id=session))
             if not ack.ack.begin_authorized:
