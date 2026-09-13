@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 <ItemGroup>
+<Compile Include="../Shared/LocalDevelopmentSettings.cs" Link="LocalDevelopmentSettings.cs" />
 <ProjectReference Include="../Platform.Infrastructure/Platform.Infrastructure.csproj" />
 <ProjectReference Include="../Platform.Ui/Platform.Ui.csproj" ReferenceOutputAssembly="false" />
 <PackageReference Include="Grpc.AspNetCore" />

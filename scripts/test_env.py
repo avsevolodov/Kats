@@ -77,7 +77,8 @@ GO
         s["runner"].update(mode="fake", backend="cli")
         s["opencodePassword"] = secrets.token_urlsafe(32)
         save(SETTINGS, s)
-    print("Test settings prepared; existing settings/passwords preserved.")
+    dev.export_rider(json.loads(SETTINGS.read_text()), "test")
+    print("Test settings and Rider configuration prepared; existing settings/passwords preserved.")
 
 
 def compose(*args, **kwargs):

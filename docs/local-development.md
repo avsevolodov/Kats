@@ -10,14 +10,13 @@ Redis отсутствует. Это дополнительный профиль
 Поддерживаемый host: Linux, macOS или WSL2. На Windows используйте WSL2 для runner
 (Git sandbox рассчитан на POSIX). Нужны Python 3.12+, OpenSSL, Git.
 Для Compose — Docker с Compose **2.30+** (`env_file.format: raw` сохраняет `$` в секретах).
-Для native — .NET SDK из `global.json`, Python venv и проверенная версия OpenCode CLI.
+Для native — .NET SDK из `global.json`, uv и проверенная версия OpenCode CLI.
 
 Из корня репозитория:
 
 ```bash
-python3 scripts/dev.py init
-python3 -m venv .venv
-.venv/bin/pip install -e 'agents[test]'
+uv run --locked scripts/dev.py init
+uv sync --locked
 chmod +x scripts/git-askpass.py
 ```
 
@@ -38,7 +37,7 @@ chmod +x scripts/git-askpass.py
 | `runner.allowedHosts` | Разрешённые Git hostname через запятую |
 | `runner.provider`, `model` | ID provider/model из конфигурации OpenCode |
 | `images.opencode` | Доступный проверенный image с фиксированным tag/digest, содержащий команду `opencode` |
-| `local` | Пути к native executable; Python по умолчанию `.venv/bin/python` |
+| `local` | Пути к dotnet/OpenCode; Python runner запускается через uv |
 
 Зарегистрируйте OIDC redirect URI **`https://localhost:8443/signin-oidc`**.
 Отключать проверку TLS или авторизацию не требуется. UI доступен на `https://localhost:8443`,
@@ -70,7 +69,7 @@ VALUES (NEWID(), N'Sample', N'https://github.com/your-account/sample.git', N'', 
 ## Docker Compose
 
 ```bash
-python3 scripts/dev.py render compose
+uv run --locked scripts/dev.py render compose
 docker compose --env-file .local/compose.env config --quiet
 docker compose --env-file .local/compose.env up --build -d
 docker compose --env-file .local/compose.env logs -f
@@ -110,7 +109,7 @@ docker compose --env-file .local/compose.env down
 Сохраните остальные поля. Запускайте только API, worker и runner:
 
 ```bash
-python3 scripts/dev.py run runner
+uv run --locked scripts/dev.py run runner
 ```
 
 Wrapper сам вызывает `opencode run --format json --model provider/model --title <execution-token>`
@@ -149,18 +148,18 @@ launcher читает settings и передаёт только его конф�
 
 ```bash
 # Терминал 1: API + Blazor
-python3 scripts/dev.py run api
+uv run --locked scripts/dev.py run api
 # Терминал 2: Temporal worker
-python3 scripts/dev.py run worker
+uv run --locked scripts/dev.py run worker
 # Терминал 3: OpenCode, loopback:4096
-python3 scripts/dev.py run opencode
+uv run --locked scripts/dev.py run opencode
 # Терминал 4: Python runner
-python3 scripts/dev.py run runner
+uv run --locked scripts/dev.py run runner
 ```
 
 Остановка — Ctrl+C в каждом терминале. Не запускайте native и Compose одновременно:
 они используют одни host-порты и workspace. Для отладки из IDE можно выполнить
-`python3 scripts/dev.py render local` и импортировать `.local/local-<component>.env`
+`uv run --locked scripts/dev.py render local` и импортировать `.local/local-<component>.env`
 как literal environment (не исполнять через shell). Native рабочая директория
 OpenCode теперь совпадает с `<repo>/.local/workspace/current`.
 

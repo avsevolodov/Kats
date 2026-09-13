@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
 <ItemGroup>
+<Compile Include="../Shared/LocalDevelopmentSettings.cs" Link="LocalDevelopmentSettings.cs" />
 <ProjectReference Include="../Platform.Infrastructure/Platform.Infrastructure.csproj" />
 <ProjectReference Include="../Platform.Workflows/Platform.Workflows.csproj" />
 <PackageReference Include="Temporalio" />

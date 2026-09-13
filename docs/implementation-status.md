@@ -48,3 +48,16 @@ Blazor MSBuild task host в этой среде падает с MSB4216/MSB4027.
 Docker отсутствует, Compose config/build/up не выполнялись.
 Не выполнены: OIDC browser login, real MSSQL/Temporal/LLM и crash acceptance.
 Наличие launcher не означает готовность этих live gates.
+
+## uv, Rider и hosted Blazor WASM
+
+Python workspace и uv.lock добавлены; native launcher и Dockerfile.runner используют uv.
+API/Worker получили launchSettings.json для test/local и загрузку приватных настроек
+из .local. API явно подключает static web assets в Development; UI собирается вместе
+с API и обслуживается с того же origin. Инструкция: docs/rider-uv.md.
+
+Evidence: uv 0.12.11 lock/sync прошли, 19 Python tests passed; генерация test Rider
+JSON прошла. Smoke дополнен проверкой WASM loader, но live browser smoke не выполнен.
+Worker успешно собран .NET SDK 10.0.100: 0 warnings, 0 errors.
+Полная API/WASM сборка остаётся заблокирована ошибками MSB4216/MSB4027 task host.
+Docker build и запуск Rider в этой среде не проверены.

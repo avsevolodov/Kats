@@ -10,6 +10,7 @@ import test_env
 
 def test_setup_preserves_secrets_and_existing_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(dev, "init", lambda: None)
+    monkeypatch.setattr(dev, "export_rider", lambda *args: None)
     monkeypatch.setattr(test_env, "LOCAL", tmp_path)
     monkeypatch.setattr(test_env, "INFRA", tmp_path / "test-infra")
     monkeypatch.setattr(test_env, "SETTINGS", tmp_path / "test-settings.json")

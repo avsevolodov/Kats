@@ -1,0 +1,18 @@
+{
+  "profiles": {
+    "Kats Worker (test)": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "KATS_LOCAL_PROFILE": "test"
+      }
+    },
+    "Kats Worker (local)": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "KATS_LOCAL_PROFILE": "local"
+      }
+    }
+  }
+}

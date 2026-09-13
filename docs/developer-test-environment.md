@@ -23,9 +23,8 @@ Docker Compose 2.30+. OpenCode для первого smoke не требуетс
 В WSL из корня клона:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -e 'agents[test]'
-python3 scripts/test_env.py up
+uv sync --locked
+uv run --locked scripts/test_env.py up
 ```
 
 Команда создаёт локальные сертификаты, уникальные пароли, realm/client и двух
@@ -53,9 +52,9 @@ certutil -user -addstore Root C:\path\to\ca.crt
 Запустите три процесса в отдельных WSL-терминалах:
 
 ```bash
-python3 scripts/test_env.py run api
-python3 scripts/test_env.py run worker
-python3 scripts/test_env.py run runner
+uv run --locked scripts/test_env.py run api
+uv run --locked scripts/test_env.py run worker
+uv run --locked scripts/test_env.py run runner
 ```
 
 Откройте https://localhost:8443/login, войдите как `developer` с созданным паролем.
@@ -68,16 +67,16 @@ MSSQL, Temporal, gRPC, OIDC и браузер работают реально; �
 Инфраструктура:
 
 ```bash
-python3 scripts/test_env.py check
+uv run --locked scripts/test_env.py check
 curl --cacert .local/certs/ca.crt https://localhost:8443/health/ready
 ```
 
 Browser smoke при работающих API, worker и fake-runner:
 
 ```bash
-.venv/bin/pip install playwright==1.55.0
-.venv/bin/python -m playwright install --with-deps chromium
-.venv/bin/python scripts/smoke_local.py
+uv sync --locked --group browser
+uv run --locked --group browser playwright install --with-deps chromium
+uv run --locked --group browser scripts/smoke_local.py
 ```
 
 Smoke проверяет OIDC login → UI Start → SUCCEEDED → reload → скачивание summary,
@@ -88,7 +87,7 @@ dev-сертификата ограничено отдельным Playwright co
 Быстрые тесты без Docker:
 
 ```bash
-.venv/bin/python -m pytest tests/runner tests/dev -q
+uv run --locked pytest tests/runner tests/dev -q
 ```
 
 ## Реальный OpenCode
@@ -106,7 +105,7 @@ API/worker не требуют смены режима и могут продо�
 Ctrl+C останавливает native-процессы. Контейнеры:
 
 ```bash
-python3 scripts/test_env.py down
+uv run --locked scripts/test_env.py down
 ```
 
 Named volumes SQL, Temporal и Keycloak сохраняются. Не удаляйте `.local` отдельно

@@ -1,10 +1,12 @@
 ARG PYTHON_IMAGE=python:3.12.14-slim-bookworm
 FROM ${PYTHON_IMAGE}
+COPY --from=ghcr.io/astral-sh/uv:0.12.11 /uv /uvx /bin/
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY agents /app/agents
+COPY pyproject.toml uv.lock /app/
 COPY scripts/git-askpass.py /app/git-askpass.py
-RUN pip install --no-cache-dir /app/agents && chmod 755 /app/git-askpass.py
+RUN uv sync --locked --no-dev --no-editable --package agent-platform-runner && chmod 755 /app/git-askpass.py
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 USER 10001:10001
-ENTRYPOINT ["agent-runner"]
+ENTRYPOINT ["/app/.venv/bin/agent-runner"]

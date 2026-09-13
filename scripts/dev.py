@@ -19,6 +19,15 @@ LOCAL = ROOT / ".local"
 COMPONENTS = ("api", "worker", "runner", "opencode")
 
 
+def export_rider(settings, profile):
+    if profile not in {"local", "test"}:
+        raise ValueError("Unknown Rider profile")
+    envs = environments(settings, "local")
+    for name in ("api", "worker"):
+        values = {key.replace("__", ":"): value for key, value in envs[name].items()}
+        write_private(LOCAL / f"rider-{profile}-{name}.json", json.dumps(values, indent=2) + "\n")
+
+
 def write_private(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -131,12 +140,18 @@ def main():
     p.add_argument("--settings", type=Path, default=LOCAL / "settings.json")
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("init")
+    rider = sub.add_parser("rider")
+    rider.add_argument("--profile", choices=("local", "test"), default="local")
     render = sub.add_parser("render"); render.add_argument("mode", choices=("local", "compose"))
     run = sub.add_parser("run"); run.add_argument("component", choices=COMPONENTS)
     args = p.parse_args()
     if args.action == "init":
         init(); return
     settings = json.loads(args.settings.read_text())
+    if args.action == "rider":
+        export_rider(settings, args.profile)
+        print("Rider configuration exported to .local.")
+        return
     envs = environments(settings, args.mode if args.action == "render" else "local")
     if args.action == "render":
         for name, env in envs.items():
@@ -155,7 +170,7 @@ def main():
     commands = {
         "api": [executables["dotnet"], "run", "--project", "src/Platform.Api", "--no-launch-profile"],
         "worker": [executables["dotnet"], "run", "--project", "src/Platform.Worker", "--no-launch-profile"],
-        "runner": [executables["python"], "-m", "opencode_runner.main"],
+        "runner": ["uv", "run", "--locked", "--no-dev", "agent-runner"],
         "opencode": [executables["opencode"], "serve", "--hostname", "127.0.0.1", "--port", "4096"]}
     # No shell parsing of secrets. OpenCode does not inherit platform connection strings.
     inherited = {k: v for k, v in os.environ.items() if not k.startswith(

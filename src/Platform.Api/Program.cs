@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
+LocalDevelopmentSettings.Load(builder.Configuration, builder.Environment.IsDevelopment(), "api", args);
+if (builder.Environment.IsDevelopment()) builder.WebHost.UseStaticWebAssets();
 builder.WebHost.ConfigureKestrel(k =>
 {
     k.Limits.MaxRequestBodySize = 32 * 1024;

@@ -28,6 +28,9 @@ def main():
             return context, page
         try:
             owner, page = login("developer")
+            # Hosted WASM must be served by the API origin, not a separate dev server.
+            loader = owner.request.get(BASE + "/_framework/blazor.webassembly.js")
+            assert loader.status == 200 and "text/html" not in loader.headers.get("content-type", "")
             page.get_by_label("Репозиторий").select_option("11111111-1111-4111-8111-111111111111")
             page.get_by_label("Commit", exact=True).fill("a" * 40)
             page.get_by_label("Что нужно изменить").fill("Local fake smoke test; no model call")

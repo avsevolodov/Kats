@@ -2,20 +2,23 @@
 
 ## Запуск приложения
 
+Основной сценарий разработки: [Rider + uv](docs/rider-uv.md).
+API запускает hosted Blazor WASM: отдельный UI-процесс не нужен.
+
 Для нового разработчика: [тестовый стенд WSL2](docs/developer-test-environment.md).
-`python3 scripts/test_env.py up` поднимает MSSQL, Temporal и Keycloak, создаёт БД
+`uv run --locked scripts/test_env.py up` поднимает MSSQL, Temporal и Keycloak, создаёт БД
 и пользователей; далее `run api`, `run worker`, `run runner` в отдельных терминалах.
 Первый тест работает без OpenCode/LLM; затем можно включить CLI backend.
 
 Для локально установленного OpenCode без `serve` выберите в `.local/settings.json`
-`runner.backend: "cli"` и запускайте `python3 scripts/dev.py run runner`.
+`runner.backend: "cli"` и запускайте `uv run --locked scripts/dev.py run runner`.
 Wrapper сам вызывает CLI; подробности и ограничения — в инструкции ниже.
 
 Добавлены [Docker Compose и локальный запуск](docs/local-development.md):
-`python3 scripts/dev.py init`, настройка `.local/settings.json`, затем
-`python3 scripts/dev.py render compose` и
+`uv run --locked scripts/dev.py init`, настройка `.local/settings.json`, затем
+`uv run --locked scripts/dev.py render compose` и
 `docker compose --env-file .local/compose.env up --build -d`.
-Native: `python3 scripts/dev.py run api|worker|opencode|runner` (по одному процессу в терминале).
+Native: `uv run --locked scripts/dev.py run api|worker|opencode|runner` (по одному процессу в терминале).
 Требуются MSSQL, Temporal, OIDC и настроенный OpenCode; UI — https://localhost:8443.
 Актуальные ограничения проверки: [implementation-status.md](docs/implementation-status.md).
 

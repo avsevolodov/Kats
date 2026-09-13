@@ -1,0 +1,22 @@
+{
+  "profiles": {
+    "Kats API (test)": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "https://localhost:8443/",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "KATS_LOCAL_PROFILE": "test"
+      }
+    },
+    "Kats API (local)": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "https://localhost:8443/",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "KATS_LOCAL_PROFILE": "local"
+      }
+    }
+  }
+}
