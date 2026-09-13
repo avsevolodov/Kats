@@ -32,7 +32,7 @@ paths:
       operationId: ListRepositories
       responses:
         '200':
-          description: Success
+          description: Enabled global repositories; never includes secrets
           content:
             application/json:
               schema:
@@ -44,6 +44,174 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
         '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    post:
+      operationId: CreateRepository
+      description: Any authenticated user. Persists PAT via Data Protection; response never echoes secrets.
+      parameters:
+      - name: X-CSRF-TOKEN
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertRepository'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '400':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/repositories/{repositoryId}:
+    put:
+      operationId: UpdateRepository
+      description: Any authenticated user. Omit credential fields to keep existing secret; send to replace.
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-TOKEN
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertRepository'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Repository'
+        '400':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    delete:
+      operationId: DisableRepository
+      description: Any authenticated user. Soft-disables the repository (Enabled=false).
+      parameters:
+      - name: repositoryId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-TOKEN
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Disabled
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/runners:
+    get:
+      operationId: ListConnectedRunners
+      description: Admin only. Connected OpenCode runners by RunnerSessions freshness; not an affinity map.
+      responses:
+        '200':
+          description: Fresh runner sessions (LastSeenAt within freshness window)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Runners'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Admin role required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/security/me:
+    get:
+      operationId: GetSecurityMe
+      responses:
+        '200':
+          description: Current subject and admin flag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityMe'
+        '401':
           description: Problem details
           content:
             application/problem+json:
@@ -395,10 +563,67 @@ components:
           format: uuid
         displayName:
           type: string
+        cloneUrl:
+          type: string
+        authKind:
+          type: string
+          enum:
+          - Anonymous
+          - Pat
+        providerHint:
+          type: string
+          enum:
+          - Generic
+          - GitHub
+        hasCredential:
+          type: boolean
+        enabled:
+          type: boolean
       additionalProperties: false
       required:
       - repositoryId
       - displayName
+      - cloneUrl
+      - authKind
+      - providerHint
+      - hasCredential
+      - enabled
+    UpsertRepository:
+      type: object
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        cloneUrl:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: HTTPS clone URL without embedded credentials
+        authKind:
+          type: string
+          enum:
+          - Anonymous
+          - Pat
+        providerHint:
+          type: string
+          enum:
+          - Generic
+          - GitHub
+        username:
+          type: string
+          maxLength: 200
+          description: Required with password when authKind is Pat on create or credential replace
+        password:
+          type: string
+          maxLength: 4000
+          description: PAT or password; never returned by GET
+      additionalProperties: false
+      required:
+      - displayName
+      - cloneUrl
+      - authKind
+      - providerHint
     Repositories:
       type: object
       properties:
@@ -406,6 +631,64 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Repository'
+      additionalProperties: false
+      required:
+      - items
+    SecurityMe:
+      type: object
+      properties:
+        subject:
+          type: string
+        isAdmin:
+          type: boolean
+      additionalProperties: false
+      required:
+      - subject
+      - isAdmin
+    Runner:
+      type: object
+      properties:
+        bootId:
+          type: string
+          format: uuid
+        workloadHint:
+          type: string
+          description: Short non-secret hint derived from workload identity
+        version:
+          type: string
+        lastSeenAt:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum:
+          - idle
+          - busy
+        runId:
+          type: string
+          format: uuid
+          nullable: true
+        operationId:
+          type: string
+          format: uuid
+          nullable: true
+        operationStatus:
+          type: string
+          nullable: true
+      additionalProperties: false
+      required:
+      - bootId
+      - workloadHint
+      - version
+      - lastSeenAt
+      - state
+    Runners:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Runner'
       additionalProperties: false
       required:
       - items
@@ -420,7 +703,10 @@ components:
           format: uuid
         baseCommit:
           type: string
-          pattern: ^([0-9a-f]{40}|[0-9a-f]{64})$
+          minLength: 1
+          maxLength: 255
+          description: Full commit SHA (40/64 hex) or git branch/tag ref resolved at runner checkout
+          pattern: ^(([0-9a-f]{40}|[0-9a-f]{64})|[A-Za-z0-9][A-Za-z0-9._/-]*)$
         prompt:
           type: string
           minLength: 1

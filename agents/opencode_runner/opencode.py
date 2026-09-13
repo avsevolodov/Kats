@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 import httpx
 from .core import RunnerError, PromptGuard
+from .presentation import format_new_message_parts
 
 
 class OpenCode:
@@ -54,7 +55,9 @@ class OpenCode:
             uncertain = True  # query the same session; NEVER send prompt again
         deadline = time.monotonic() + 20*60
         last_text = ""
-        # Message polling is the reliable fallback; SSE supplies progress previews only.
+        seen_parts: set[str] = set()
+        # Message polling is the reliable source for text + sanitized tool/step markers.
+        # SSE remains permission/question abort only (not a second prompt path).
         events = asyncio.create_task(self.events(emit, abort_requested))
         try:
             while time.monotonic() < deadline:
@@ -65,7 +68,10 @@ class OpenCode:
                 assistants = [m for m in r.json() if m.get("info", {}).get("role") == "assistant"]
                 if assistants:
                     msg = assistants[-1]; info = msg["info"]
-                    text = "".join(p.get("text", "") for p in msg.get("parts", []) if p.get("type") == "text")
+                    parts = msg.get("parts", [])
+                    for marker in format_new_message_parts(parts, seen_parts):
+                        await emit(marker)
+                    text = "".join(p.get("text", "") for p in parts if isinstance(p, dict) and p.get("type") == "text")
                     if text != last_text:
                         await emit(text[len(last_text):] if text.startswith(last_text) else text)
                         last_text = text

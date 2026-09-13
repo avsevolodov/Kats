@@ -3,7 +3,24 @@ BEGIN TRANSACTION;
 DECLARE @lock int; EXEC @lock=sp_getapplock @Resource=N'agent-platform-schema-v1',@LockMode='Exclusive',@LockOwner='Transaction';
 IF @lock<0 THROW 51000,'Schema lock failed',1;
 IF OBJECT_ID(N'dbo.Repositories',N'U') IS NULL
-  CREATE TABLE dbo.Repositories(Id uniqueidentifier NOT NULL PRIMARY KEY, DisplayName nvarchar(max) NOT NULL, CloneUrl nvarchar(max) NOT NULL, CredentialRef nvarchar(max) NOT NULL, Enabled bit NOT NULL);
+  CREATE TABLE dbo.Repositories(
+    Id uniqueidentifier NOT NULL PRIMARY KEY,
+    DisplayName nvarchar(max) NOT NULL,
+    CloneUrl nvarchar(max) NOT NULL,
+    CredentialRef nvarchar(max) NOT NULL CONSTRAINT DF_Repositories_CredentialRef DEFAULT N'',
+    AuthKind nvarchar(32) NOT NULL CONSTRAINT DF_Repositories_AuthKind DEFAULT N'Anonymous',
+    ProviderHint nvarchar(32) NOT NULL CONSTRAINT DF_Repositories_ProviderHint DEFAULT N'Generic',
+    CredentialCipher varbinary(max) NULL,
+    Enabled bit NOT NULL);
+ELSE
+BEGIN
+  IF COL_LENGTH(N'dbo.Repositories',N'AuthKind') IS NULL
+    ALTER TABLE dbo.Repositories ADD AuthKind nvarchar(32) NOT NULL CONSTRAINT DF_Repositories_AuthKind DEFAULT N'Anonymous';
+  IF COL_LENGTH(N'dbo.Repositories',N'ProviderHint') IS NULL
+    ALTER TABLE dbo.Repositories ADD ProviderHint nvarchar(32) NOT NULL CONSTRAINT DF_Repositories_ProviderHint DEFAULT N'Generic';
+  IF COL_LENGTH(N'dbo.Repositories',N'CredentialCipher') IS NULL
+    ALTER TABLE dbo.Repositories ADD CredentialCipher varbinary(max) NULL;
+END
 IF OBJECT_ID(N'dbo.Runs',N'U') IS NULL
   CREATE TABLE dbo.Runs(Id uniqueidentifier NOT NULL PRIMARY KEY, OperationId uniqueidentifier NOT NULL UNIQUE, RepositoryId uniqueidentifier NOT NULL REFERENCES Repositories(Id), Owner nvarchar(200) NOT NULL, BaseCommit nvarchar(max) NOT NULL, Prompt nvarchar(max) NOT NULL, Status nvarchar(max) NOT NULL, CancelDesired bit NOT NULL, CreatedAt datetime2 NOT NULL, UpdatedAt datetime2 NOT NULL, Deadline datetime2 NOT NULL, NextSequence bigint NOT NULL, EarliestSequence bigint NOT NULL, ErrorCode nvarchar(max) NULL);
 IF OBJECT_ID(N'dbo.Commands',N'U') IS NULL
@@ -22,3 +39,8 @@ IF OBJECT_ID(N'dbo.DataProtectionKeys',N'U') IS NULL
   CREATE TABLE dbo.DataProtectionKeys(Id int IDENTITY NOT NULL PRIMARY KEY, FriendlyName nvarchar(max) NULL, Xml nvarchar(max) NULL);
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='IX_Runs_Owner_CreatedAt' AND object_id=OBJECT_ID('dbo.Runs')) CREATE INDEX IX_Runs_Owner_CreatedAt ON dbo.Runs(Owner,CreatedAt);
 COMMIT;
+GO
+-- Separate batch: AuthKind must exist before this UPDATE is compiled.
+IF COL_LENGTH(N'dbo.Repositories',N'AuthKind') IS NOT NULL
+  UPDATE dbo.Repositories SET AuthKind=N'Pat' WHERE CredentialRef <> N'' AND AuthKind=N'Anonymous' AND CredentialCipher IS NULL;
+GO

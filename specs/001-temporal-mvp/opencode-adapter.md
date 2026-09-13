@@ -11,8 +11,8 @@
 ## Последовательность
 
 1. Создать BootId, gRPC Hello, проверить version/health локального OpenCode.
-2. Claim assignment. Подготовить чистый workspace, clone зарегистрированного repo, checkout точного commit; не получать arbitrary URL из prompt.
-3. Проверить отсутствие submodules/LFS, лимит размера, запрет credentials в `.git/config`; закрыть read-only credential helper после clone.
+2. Claim assignment (без секрета). Для AuthKind=Pat без legacy CredentialRef вызвать FetchGitCredential по OperationKey; для Anonymous — без askpass; legacy CredentialRef — файл из mounted dir. Подготовить чистый workspace, clone зарегистрированного repo, checkout точного commit; не получать arbitrary URL из prompt.
+3. Проверить отсутствие submodules/LFS, лимит размера, запрет credentials в `.git/config`; временный askpass/файл удалить после clone.
 4. Создать OpenCode session, сохранить ID в Python memory; BeginOperation и дождаться committed ACK.
 5. Отправить ровно один prompt для этого operation. Сохранить локальный флаг prompt_sent; при HTTP неопределённости читать ту же session, не повторять prompt автоматически. Устойчивый message ID использовать только после проверки семантики pinned API, не считать его гарантией идемпотентности по умолчанию.
 6. SSE читать независимо от gRPC output writer; coalesce preview до 1 batch/s. Heartbeat/control обрабатываются независимо от тяжёлого model response.

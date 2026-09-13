@@ -6,7 +6,7 @@
 
 | Таблица | Основные поля | Уникальность/индексы |
 | --- | --- | --- |
-| Repositories | RepositoryId, DisplayName, CloneUrl, AllowedRefPolicy, CredentialRef, Enabled | PK RepositoryId; URL только из admin configuration |
+| Repositories | RepositoryId, DisplayName, CloneUrl, AllowedRefPolicy, AuthKind (Anonymous\|Pat), ProviderHint, CredentialRef (legacy file alias), CredentialCipher (DP-protected PAT), Enabled | PK RepositoryId; URL и креды только из admin configuration; GET никогда не возвращает секрет |
 | Runs | RunId, OwnerSubject, RepositoryId, BaseCommit, Prompt, DefinitionVersion, WorkflowId, OperationId, ProjectedStatus, CancelDesired, CreatedAt, UpdatedAt, NextEventSequence, EarliestAvailableSequence, RowVersion | PK RunId; unique WorkflowId; owner/created index |
 | Commands | OwnerSubject, CommandId, Kind, RunId, RequestHash, PayloadJson, Status, AcceptedAt, DispatchLeaseUntil, DispatchAttempt, LastError | unique(OwnerSubject,CommandId); status/lease index |
 | Operations | OperationId, RunId, Kind, Status, RunnerBootId, Fence, LeaseUntil, BeginCommittedAt, OpenCodeSessionId, CancelDesired, ResultManifestId, ErrorCode, CreatedAt, UpdatedAt, RowVersion | PK OperationId; unique(RunId,Kind) MVP; status/lease index |

@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 import uuid
 from .core import PromptGuard, RunnerError
+from .presentation import format_cli_event
 
 
 class OpenCodeCli:
@@ -42,7 +43,7 @@ class OpenCodeCli:
         except OSError:
             raise RunnerError("OPENCODE_CLI_NOT_FOUND") from None
         try:
-            async with asyncio.timeout(10):
+            async with asyncio.timeout(60):
                 version = await p.stdout.read(4097)
                 await p.wait()
         except TimeoutError:
@@ -53,7 +54,7 @@ class OpenCodeCli:
         self.version = version.decode("utf-8", errors="replace").strip()
         expected = os.environ.get("OPENCODE_CLI_VERSION", "1.2.27")
         if self.version != expected:
-            raise RunnerError("OPENCODE_CLI_VERSION_MISMATCH")
+            raise RunnerError(f"OPENCODE_CLI_VERSION_MISMATCH: got {self.version!r}, expected {expected!r}")
 
     async def create(self):
         self.guard = PromptGuard()
@@ -110,10 +111,21 @@ class OpenCodeCli:
                     for offset in range(0, len(text), 2048):
                         await emit(text[offset:offset+2048])
                 elif kind == "step_finish":
-                    reason = part.get("reason")
+                    reason = part.get("reason") if isinstance(part, dict) else None
+                    marker = format_cli_event(kind, part if isinstance(part, dict) else {})
+                    if marker:
+                        await emit(marker)
                 elif kind == "step_start":
                     reason = None
-                # Tool payloads and reasoning are never forwarded to the user stream.
+                    marker = format_cli_event(kind, part if isinstance(part, dict) else {})
+                    if marker:
+                        await emit(marker)
+                elif kind == "tool" or (isinstance(part, dict) and part.get("type") == "tool"):
+                    # Sanitized name + path/pattern only; never raw payloads or reasoning.
+                    marker = format_cli_event("tool", part if isinstance(part, dict) else {})
+                    if marker:
+                        await emit(marker)
+                # Reasoning and raw stderr stay off the UI stream.
             await p.wait()
             if p.returncode != 0:
                 raise RunnerError("OPENCODE_CLI_EXIT_FAILED")

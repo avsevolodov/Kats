@@ -16,6 +16,7 @@ message RunnerFrame {
     Heartbeat heartbeat = 14;
     OutputBatch output = 15;
     CompleteOperation complete = 16;
+    FetchGitCredential fetch_git_credential = 17;
   }
 }
 message GatewayFrame {
@@ -28,6 +29,7 @@ message GatewayFrame {
     OperationSnapshot snapshot = 14;
     AbortRequested abort = 15;
     ProtocolError error = 16;
+    GitCredential git_credential = 17;
   }
 }
 message Hello {
@@ -47,10 +49,17 @@ message Assignment {
   string clone_url = 4; // allowlisted; contains no credentials
   string base_commit = 5;
   string prompt = 6;
-  string credential_ref = 7; // alias in mounted read-only credentials, not a secret
+  string credential_ref = 7; // legacy mounted file alias, not a secret
   int64 lease_until_unix_ms = 8;
   int64 deadline_unix_ms = 9;
   string definition_version = 10;
+  string auth_kind = 11; // anonymous | pat
+}
+message FetchGitCredential { OperationKey key = 1; }
+message GitCredential {
+  string auth_kind = 1; // anonymous | pat
+  string username = 2;
+  string password = 3; // PAT token for GitHub-style HTTPS; never logged
 }
 message ResumeOperation { OperationKey key = 1; int64 last_acked_producer_sequence = 2; }
 message BeginOperation { OperationKey key = 1; string opencode_session_id = 2; }

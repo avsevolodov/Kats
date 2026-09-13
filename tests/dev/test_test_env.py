@@ -26,8 +26,22 @@ def test_setup_preserves_secrets_and_existing_settings(tmp_path, monkeypatch):
     assert (tmp_path / "test-infra/credentials.json").read_bytes() == first
     assert json.loads((tmp_path / "test-settings.json").read_text())["runner"]["model"] == "custom-model"
     realm = json.loads((tmp_path / "test-infra/realm/kats-dev-realm.json").read_text())
-    assert {u["username"] for u in realm["users"]} == {"developer", "other"}
+    assert {u["username"] for u in realm["users"]} == {"admin", "developer", "other"}
+    assert "admin" in {r["name"] for r in realm["roles"]["realm"]}
+    assert realm["users"][0]["username"] == "admin" and "admin" in realm["users"][0]["realmRoles"]
     assert realm["clients"][0]["directAccessGrantsEnabled"] is False
+    assert realm["clients"][0]["protocolMappers"][0]["config"]["claim.name"] == "roles"
+    sql = (tmp_path / "test-infra/bootstrap/init.sql").read_text()
+    assert "dbo.RunnerSessions" in sql
+    assert "LastSeenAt" in sql
+    assert "IX_RunnerSessions_LastSeenAt" in sql
+
+
+def test_runner_sessions_sql_idempotent():
+    text = (ROOT / "sql/003-runner-sessions.sql").read_text()
+    assert "CREATE TABLE dbo.RunnerSessions" in text
+    assert "BootId" in text and "WorkloadSubject" in text and "LastSeenAt" in text
+    assert "OBJECT_ID(N'dbo.RunnerSessions'" in text
 
 
 def test_down_preserves_volumes(monkeypatch):
