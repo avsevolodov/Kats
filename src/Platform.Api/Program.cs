@@ -79,7 +79,12 @@ app.Use(async (context, next) =>
     catch (AntiforgeryValidationException) { context.Response.StatusCode = 400; await context.Response.WriteAsJsonAsync(new { title = "CSRF validation failed", status = 400, code = "CSRF_INVALID" }); }
     catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
 });
-app.UseBlazorFrameworkFiles(); app.UseStaticFiles(); app.UseWebSockets(); app.UseAuthentication(); app.UseAuthorization();
+// Do not combine the terminal /_framework branch of UseBlazorFrameworkFiles
+// with endpoint-based static assets: it can swallow an already selected endpoint.
+app.UseStaticFiles();
+app.UseWebSockets();
+app.UseAuthentication();
+app.UseAuthorization();
 // Fingerprinted URLs (including WASM Hot Reload initializers) are manifest endpoints,
 // not physical filenames. Static file middleware alone cannot serve these aliases.
 app.MapStaticAssets().AllowAnonymous();

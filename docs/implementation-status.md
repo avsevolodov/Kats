@@ -88,3 +88,12 @@ Evidence: Python syntax compile и git diff --check прошли. В текущ�
 NuGet cache; build остановлен во время восстановления зависимостей без результата.
 Реальный browser/Rider smoke не выполнен, работоспособность у пользователя ещё
 требует проверки. Hot Reload не отключён; статические файлы не копируются вручную.
+
+## Correction: framework branch and endpoint routing
+
+Пользовательский запуск выявил конфликт оставленного UseBlazorFrameworkFiles
+с MapStaticAssets: запрос попадал в отдельную ветку, не исполняющую выбранный endpoint.
+UseBlazorFrameworkFiles удалён. Framework/fingerprinted assets обслуживаются
+MapStaticAssets, обычные файлы и SPA fallback сохраняются. Это исправление предыдущего
+изменения, а не проблема Windows paths или MSSQL.
+Evidence: diff check; полный build/browser smoke в текущей среде не подтверждён.
