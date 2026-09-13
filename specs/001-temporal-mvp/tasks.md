@@ -4,6 +4,7 @@
 
 - [x] DEV005 Генератор тестового realm, отдельных credentials/settings и bootstrap SQL; тесты идемпотентности и сохранения данных.
 - [ ] DEV006 WSL Compose up и smoke_local.py на реальном стенде (MSSQL/Temporal/OIDC + fake runner); автоматизация готова, live gate открыт.
+- [x] DEV008 Admin UI/API подключённых runners: RunnerSessions upsert на Hello/frame, GET `/api/v1/runners`, страница `/agents`; presence по LastSeenAt, без affinity.
 
 - [ ] DEV004 Native CLI adapter: stdin/JSON, exit/timeout/cancel, защита от повтора; live OpenCode smoke после subprocess fixtures.
 
@@ -57,7 +58,7 @@ Exit: один и тот же Run доступен через любую API rep
 
 ## Phase 4 — Blazor UI (depends T017–T021)
 
-- [ ] DEV007 Admin UI/API для глобальных repositories: Anonymous/PAT (GitHub), CredentialCipher через Data Protection, RequireAdmin CRUD, FetchGitCredential для runner; secrets не в list/Assignment/logs. FR-012, FR-013.
+- [ ] DEV007 UI/API для глобальных repositories (любой authenticated): Anonymous/PAT (GitHub), CredentialCipher через Data Protection, FetchGitCredential для runner; secrets не в list/Assignment/logs. FR-012, FR-013.
 - [ ] T022 [US1] `Platform.Ui/Pages/Runs`: list/create, repository selector, commit validation, prompt validation, generating/reusing CommandId until known acceptance. FR-002, FR-004.
 - [ ] T023 [US2] Detail page и stream client: run/operation statuses, escaped preview, cursor apply/dedup, reconnect banner, truncated/expired history. FR-002, FR-007.
 - [ ] T024 [US3] Cancel UI и artifact download/summary/patch/base commit. NEEDS_ATTENTION поясняет потерю runner и явный новый Run, не автоматический Retry. FR-002, FR-009, FR-010, FR-011.

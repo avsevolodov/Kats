@@ -14,6 +14,12 @@ public sealed record StartRun(Guid CommandId, Guid RepositoryId, string BaseComm
 public sealed record CancelRun(Guid CommandId);
 public sealed record UpsertRepository(string DisplayName, string CloneUrl, string AuthKind, string ProviderHint, string? Username = null, string? Password = null);
 public sealed record RepositoryView(Guid RepositoryId, string DisplayName, string CloneUrl, string AuthKind, string ProviderHint, bool HasCredential, bool Enabled);
+public sealed record RunnerView(Guid BootId, string WorkloadHint, string Version, DateTime LastSeenAt, string State,
+    Guid? RunId, Guid? OperationId, string? OperationStatus);
+public static class RunnerPresence
+{
+    public const int FreshnessSeconds = 15;
+}
 public sealed record SecurityMe(string Subject, bool IsAdmin);
 public sealed record CommandAccepted(Guid CommandId, Guid RunId, string CommandStatus = "PENDING")
 {

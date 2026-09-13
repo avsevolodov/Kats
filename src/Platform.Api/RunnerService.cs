@@ -20,10 +20,14 @@ public sealed class RunnerService(SqlStore store, IConfiguration config) : Runne
                 if (boot == null)
                 {
                     Rules.Require(f.Hello != null && f.Hello.ProtocolVersion == 1 && Guid.TryParse(f.Hello.BootId, out _), "HELLO_REQUIRED", 400);
-                    boot = f.Hello!.BootId; reply.Hello = new() { HeartbeatSeconds = 5, LeaseSeconds = 45 };
+                    boot = f.Hello!.BootId;
+                    var version = string.Join(" / ", new[] { f.Hello.RunnerVersion, f.Hello.OpencodeVersion }.Where(x => !string.IsNullOrWhiteSpace(x)));
+                    await store.TouchRunnerSession(boot, workload, version);
+                    reply.Hello = new() { HeartbeatSeconds = 5, LeaseSeconds = 45 };
                 }
                 else
                 {
+                    await store.TouchRunnerSession(boot, workload);
                     var key = f.Resume?.Key ?? f.Begin?.Key ?? f.Heartbeat?.Key ?? f.Output?.Key ?? f.Complete?.Key ?? f.FetchGitCredential?.Key;
                     if (key != null) Rules.Require(key.BootId == boot, "FENCED", 403);
                     switch (f.PayloadCase)

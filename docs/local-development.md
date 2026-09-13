@@ -41,13 +41,42 @@ chmod +x scripts/git-askpass.py
 
 Зарегистрируйте OIDC redirect URI **`https://localhost:8443/signin-oidc`**.
 Отключать проверку TLS или авторизацию не требуется. UI доступен на `https://localhost:8443`,
-вход — `/login`, gRPC — `localhost:8081`. HTTPS позволяет работать secure-cookie и WebSocket.
+вход — `/login`, gRPC runner — `127.0.0.1:8081` (на той же ОС) или IP хоста Windows
+из WSL. HTTPS позволяет работать secure-cookie и WebSocket.
+
+### Гибрид: C# на Windows, Python/Docker в WSL
+
+Типичный стенд: API/Worker в Rider на Windows; runner (`uv`) и infra Compose в WSL.
+**Не** поднимайте `docker compose up api` — C# уже на хосте.
+
+`dev.py run runner` сам подставляет `PLATFORM_GRPC=<default-gateway>:8081`
+(из `ip route`, не DNS `10.255.255.254`) и `PLATFORM_GRPC_SSL_NAME=localhost`.
+Ручной override нужен только если автоопределение неверно:
+
+```json
+"local": { "platformGrpc": "172.x.x.x:8081" }
+```
+
+Или `"platformGrpc": "auto"` — то же, что отсутствие поля.
+
+Проверка:
+
+```bash
+ip -4 route show default | awk '{print $3}'
+nc -vz "$(ip -4 route show default | awk '{print $3}')" 8081
+```
+
+На Windows API должен слушать `0.0.0.0:8081` (`Runner:ServerCertificate`).
+При необходимости разрешите TCP 8081 в Firewall для сети WSL.
 
 Выполните `sql/001-initial.sql` в выбранной БД через SSMS/sqlcmd до запуска API/worker.
+Если БД уже была создана до полей credentials, дополнительно выполните
+`sql/002-repository-credentials.sql` (идемпотентно добавляет AuthKind/ProviderHint/CredentialCipher).
+Для списка подключённых агентов выполните `sql/003-runner-sessions.sql` (таблица RunnerSessions).
 Учётная запись приложения должна иметь права на чтение/изменение таблиц; schema setup
 выполняется отдельно пользователем с DDL правами. Скрипт создания таблиц повторяемый.
-Добавьте разрешённый репозиторий через UI `/repositories` под пользователем с ролью
-`admin` (Anonymous или PAT, в т.ч. GitHub), либо SQL:
+Добавьте разрешённый репозиторий через UI `/repositories` после входа
+(Anonymous или PAT, в т.ч. GitHub), либо SQL:
 
 ```sql
 INSERT INTO dbo.Repositories (Id, DisplayName, CloneUrl, CredentialRef, AuthKind, ProviderHint, Enabled)
@@ -130,10 +159,13 @@ Wrapper сам вызывает `opencode run --format json --model provider/mod
 
 Путь provider config и XDG-каталоги такие же, как у dev OpenCode server. CLI-процесс
 не наследует параметры платформенной БД, OIDC и Git credentials wrapper.
-Разрешены read/glob/grep/edit; прочие permissions запрещены. Raw stderr, tool payloads
-и reasoning не пересылаются в UI. Preview/summary формируются из JSON text events;
-patch вычисляет существующий Workspace. Успех требует exit code 0 и финального
-`step_finish.reason=stop`. Неполный/некорректный вывод даёт UNKNOWN.
+Разрешены read/glob/grep/edit; прочие permissions запрещены. Raw stderr, полные
+tool payloads и reasoning не пересылаются в UI. В поток preview попадают
+санитизированные маркеры `[шаг]` / `[tool:name]` с коротким summary безопасных
+полей (path/pattern и т.п.) плюс текст assistant; секреты в arg-ключах скрываются.
+Summary по-прежнему собирается из JSON text events; patch вычисляет Workspace.
+Успех требует exit code 0 и финального `step_finish.reason=stop`.
+Неполный/некорректный вывод даёт UNKNOWN.
 
 BeginOperation сохраняется до запуска CLI. Поле session ID содержит `cli-<UUID>` —
 локальный execution token wrapper, не ID сессии OpenCode. CLI не запускается повторно

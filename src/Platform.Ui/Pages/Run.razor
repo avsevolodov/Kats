@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject NavigationManager Nav
+@inject IJSRuntime Js
 <main>
 <header>
     <a href="/">← Все задачи</a>
@@ -18,15 +19,62 @@
     @if (run.ErrorCode != null) { <p role="alert">@run.ErrorCode</p> }
     @if (run.Artifacts.Count > 0) { <section><h2>Результаты</h2>@foreach (var a in run.Artifacts) { <p><a href="@a.DownloadUrl" download>@(a.Kind == "patch" ? "Скачать patch" : "Скачать описание результата")</a> · @a.SizeBytes байт</p> }</section> }
 }
+@if (historyExpired) { <p class="banner" role="status">Предыдущая история истекла. Показан доступный хвост событий.</p> }
+@if (reconnecting) { <p class="banner reconnect" role="status">Переподключение к потоку…</p> }
 @if (error != null) { <p role="alert" class="error">@error</p> }
-<section><h2>Ход работы</h2><pre aria-live="polite">@output</pre></section>
+<section>
+    <h2>Ход выполнения</h2>
+    <div class="timeline" @ref="logEl" aria-live="polite">
+        @if (entries.Count == 0)
+        {
+            <p class="muted">Ожидание событий…</p>
+            @if (run != null && run.LastEventSequence is not null and not "0")
+            {
+                <p class="error">На сервере есть события (до @run.LastEventSequence), но таймлайн пуст — перезапустите API и обновите страницу с очисткой кэша.</p>
+            }
+        }
+        @foreach (var entry in entries)
+        {
+            if (entry.Kind == EntryKind.Status)
+            {
+                <div class="timeline-status"><span class="timeline-label">@entry.Label</span>@if (!string.IsNullOrEmpty(entry.Detail)) { <span class="muted"> · @entry.Detail</span> }</div>
+            }
+            else if (entry.Kind == EntryKind.Notice)
+            {
+                <div class="timeline-notice">@entry.Text</div>
+            }
+            else
+            {
+                <pre class="timeline-agent">@entry.Text</pre>
+            }
+        }
+    </div>
+</section>
 </main>
 @code {
     [Parameter] public Guid Id { get; set; }
-    RunView? run; string output = "", connection = "Подключение…"; string? error; long cursor;
-    readonly CancellationTokenSource stop = new(); Task? stream; System.Net.WebSockets.ClientWebSocket? socket;
-    Guid cancelId = Guid.NewGuid(); bool signedIn;
-    protected override async Task OnInitializedAsync() { await Refresh(); stream = ReadStream(); }
+    RunView? run;
+    string connection = "Подключение…";
+    string? error;
+    long cursor;
+    bool signedIn, historyExpired, reconnecting;
+    readonly List<TimelineEntry> entries = [];
+    readonly CancellationTokenSource stop = new();
+    Task? stream;
+    Task? poll;
+    System.Net.WebSockets.ClientWebSocket? socket;
+    Guid cancelId = Guid.NewGuid();
+    ElementReference logEl;
+    int agentChars;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Refresh();
+        await LoadEvents();
+        stream = ReadStream();
+        poll = PollEvents();
+    }
+
     async Task Refresh()
     {
         try
@@ -42,10 +90,91 @@
             signedIn = true;
             await using var body = await response.Content.ReadAsStreamAsync(stop.Token);
             run = await JsonSerializer.DeserializeAsync<RunView>(body, Wire.Json, stop.Token);
-            error = null;
         }
         catch { error = "Не удалось получить состояние задачи. Войдите в систему или повторите позже."; }
     }
+
+    async Task LoadEvents()
+    {
+        try
+        {
+            using var response = await Http.GetAsync($"api/v1/runs/{Id}/events?afterSequence={cursor}", stop.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                signedIn = false;
+                error = "Войдите в систему, чтобы открыть задачу.";
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.Gone)
+            {
+                historyExpired = true;
+                await Refresh();
+                if (run != null && long.TryParse(run.EarliestAvailableSequence, out var earliest) && earliest > 0)
+                    cursor = earliest - 1;
+                return;
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(stop.Token);
+                error = $"История событий: HTTP {(int)response.StatusCode}" + (body.Length > 0 && body.Length < 200 ? $" ({body})" : "");
+                return;
+            }
+            await using var stream = await response.Content.ReadAsStreamAsync(stop.Token);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: stop.Token);
+            if (!TryGetProperty(doc.RootElement, "items", out var items) || items.ValueKind != JsonValueKind.Array) return;
+            var added = false;
+            foreach (var e in items.EnumerateArray())
+            {
+                if (!TryGetProperty(e, "sequence", out var seqEl)) continue;
+                var n = ReadSequence(seqEl);
+                if (n <= cursor) continue;
+                if (!TryGetProperty(e, "kind", out var kindEl)) continue;
+                var kind = kindEl.GetString();
+                if (string.IsNullOrEmpty(kind)) continue;
+                ApplyEvent(kind, TryGetProperty(e, "payload", out var payload) ? payload : default);
+                cursor = n;
+                added = true;
+            }
+            if (added) error = null;
+            await InvokeAsync(StateHasChanged);
+            if (added)
+            {
+                try { await Js.InvokeVoidAsync("platformScrollEnd", logEl); }
+                catch { /* best-effort scroll */ }
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            error = $"Не удалось загрузить события: {ex.GetType().Name}";
+        }
+    }
+
+    async Task PollEvents()
+    {
+        // REST is a parallel delivery path (not only fallback). Dedup is by cursor.
+        while (!stop.IsCancellationRequested)
+        {
+            try
+            {
+                var terminal = run != null && States.Terminal(run.Status);
+                var missingHistory = entries.Count == 0 && run != null && run.LastEventSequence is not null and not "0";
+                if (terminal && !missingHistory)
+                {
+                    reconnecting = false;
+                    connection = "Завершено";
+                    await InvokeAsync(StateHasChanged);
+                    return;
+                }
+                await Task.Delay(terminal ? 1000 : 500, stop.Token);
+                if (!terminal) await Refresh();
+                await LoadEvents();
+            }
+            catch (OperationCanceledException) { break; }
+            catch { /* keep polling */ }
+        }
+    }
+
     async Task Cancel()
     {
         try
@@ -57,10 +186,19 @@
         }
         catch { error = "Подтверждение отмены не получено. Можно повторить запрос."; }
     }
+
     async Task ReadStream()
     {
         while (!stop.IsCancellationRequested)
         {
+            if (run != null && States.Terminal(run.Status))
+            {
+                await LoadEvents();
+                reconnecting = false;
+                connection = "Завершено";
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
             try
             {
                 using var ws = new System.Net.WebSockets.ClientWebSocket(); socket = ws;
@@ -68,25 +206,197 @@
                 await ws.ConnectAsync(url.Uri, stop.Token);
                 var sub = System.Text.Encoding.UTF8.GetBytes(Wire.Serialize(new { type = "subscribe", protocolVersion = 1, runId = Id, afterSequence = cursor.ToString() }));
                 await ws.SendAsync(sub.AsMemory(), System.Net.WebSockets.WebSocketMessageType.Text, true, stop.Token);
+                reconnecting = false;
                 connection = "Подключено";
+                await InvokeAsync(StateHasChanged);
+                using var pingStop = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+                var ping = PingLoop(ws, pingStop.Token);
+                try
+                {
                 while (!stop.IsCancellationRequested)
                 {
                     using var bytes = new MemoryStream(); var buffer = new byte[16384]; System.Net.WebSockets.ValueWebSocketReceiveResult received;
-                    do { received = await ws.ReceiveAsync(buffer.AsMemory(), stop.Token); if (received.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) throw new IOException(); bytes.Write(buffer, 0, received.Count); if (bytes.Length > 262144) throw new IOException(); } while (!received.EndOfMessage);
+                    do { received = await ws.ReceiveAsync(buffer.AsMemory(), stop.Token); if (received.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) throw new IOException("stream closed"); bytes.Write(buffer, 0, received.Count); if (bytes.Length > 262144) throw new IOException(); } while (!received.EndOfMessage);
                     var message = JsonSerializer.Deserialize<JsonElement>(bytes.ToArray()); var type = message.GetProperty("type").GetString();
-                    if (type == "cursor_expired") { await Refresh(); cursor = long.Parse(run!.EarliestAvailableSequence) - 1; output = "Предыдущая история истекла.\n"; break; }
+                    if (type == "error")
+                    {
+                        error = $"Поток: {message.GetProperty("code").GetString()}";
+                        throw new IOException(error);
+                    }
+                    if (type == "cursor_expired")
+                    {
+                        historyExpired = true;
+                        entries.Clear();
+                        agentChars = 0;
+                        entries.Add(new TimelineEntry(EntryKind.Notice, "Предыдущая история истекла. Показан доступный хвост событий.", "", ""));
+                        await Refresh();
+                        cursor = long.Parse(run!.EarliestAvailableSequence) - 1;
+                        break;
+                    }
+                    if (type is "subscribed" or "pong" or "ack")
+                    {
+                        if (type == "subscribed" && message.TryGetProperty("status", out var st) && run != null)
+                            run = run with { Status = st.GetString() ?? run.Status };
+                        continue;
+                    }
                     if (type != "event") continue;
-                    var n = long.Parse(message.GetProperty("sequence").GetString()!); if (n <= cursor) continue;
-                    var kind = message.GetProperty("kind").GetString();
-                    if (kind == "OutputBatch") output += message.GetProperty("payload").GetProperty("text").GetString();
-                    if (kind == "OutputTruncated") output += "\nПромежуточный вывод ограничен. Финальные результаты будут доступны отдельно.\n";
-                    if (output.Length > 524288) output = output[^524288..];
-                    cursor = n; await Refresh(); await InvokeAsync(StateHasChanged);
+                    var kind = message.GetProperty("kind").GetString()!;
+                    var n = ReadSequence(message.GetProperty("sequence")); if (n <= cursor) continue;
+                    ApplyEvent(kind, message.TryGetProperty("payload", out var payload) ? payload : default);
+                    cursor = n;
+                    // Avoid a full run GET on every OutputBatch — that made the timeline feel minutes late.
+                    if (kind is "RunStatusChanged" or "OperationStarted" or "OperationCompleted" or "RunCompleted" or "CancelRequested")
+                        await Refresh();
+                    await InvokeAsync(StateHasChanged);
+                    try { await Js.InvokeVoidAsync("platformScrollEnd", logEl); }
+                    catch { /* best-effort scroll */ }
+                    if (run != null && States.Terminal(run.Status)) return;
+                }
+                }
+                finally
+                {
+                    pingStop.Cancel();
+                    try { await ping; } catch (OperationCanceledException) { }
                 }
             }
-            catch (Exception) when (!stop.IsCancellationRequested) { connection = "Переподключение…"; await InvokeAsync(StateHasChanged); }
+            catch (Exception ex) when (!stop.IsCancellationRequested)
+            {
+                await Refresh();
+                await LoadEvents();
+                if (run != null && States.Terminal(run.Status))
+                {
+                    reconnecting = false;
+                    connection = "Завершено";
+                    await InvokeAsync(StateHasChanged);
+                    return;
+                }
+                reconnecting = true;
+                connection = "Переподключение…";
+                error ??= $"Нет живого потока ({ex.GetType().Name}). История обновляется по REST.";
+                await InvokeAsync(StateHasChanged);
+            }
             if (!stop.IsCancellationRequested) await Task.Delay(1000, stop.Token);
         }
     }
-    public async ValueTask DisposeAsync() { stop.Cancel(); socket?.Abort(); if (stream != null) try { await stream; } catch (OperationCanceledException) { } stop.Dispose(); }
+
+    async Task PingLoop(System.Net.WebSockets.ClientWebSocket ws, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested && ws.State == System.Net.WebSockets.WebSocketState.Open)
+            {
+                await Task.Delay(15000, ct);
+                var ping = System.Text.Encoding.UTF8.GetBytes("""{"type":"ping"}""");
+                await ws.SendAsync(ping.AsMemory(), System.Net.WebSockets.WebSocketMessageType.Text, true, ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { /* receive loop will reconnect */ }
+    }
+
+    void ApplyEvent(string kind, JsonElement payload)
+    {
+        switch (kind)
+        {
+            case "RunAccepted":
+                entries.Add(Status("Принято", StatusOf(payload)));
+                break;
+            case "OperationStarted":
+                entries.Add(Status("Операция запущена", OpId(payload)));
+                break;
+            case "RunStatusChanged":
+                entries.Add(Status("Статус", DetailStatus(payload)));
+                break;
+            case "CancelRequested":
+                entries.Add(Status("Отмена запрошена", ""));
+                break;
+            case "OperationCompleted":
+                entries.Add(Status("Операция завершена", DetailStatus(payload)));
+                break;
+            case "RunCompleted":
+                entries.Add(Status("Задача завершена", DetailStatus(payload)));
+                break;
+            case "OutputTruncated":
+                entries.Add(new TimelineEntry(EntryKind.Notice, "Промежуточный вывод ограничен. Финальные результаты будут доступны отдельно.", "", ""));
+                break;
+            case "OutputBatch":
+                var text = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
+                if (text.Length == 0) return;
+                AppendAgent(text);
+                break;
+        }
+    }
+
+    void AppendAgent(string text)
+    {
+        if (entries.Count > 0 && entries[^1].Kind == EntryKind.Agent)
+        {
+            var last = entries[^1];
+            var merged = last.Text + text;
+            agentChars += text.Length;
+            if (agentChars > 524288)
+            {
+                merged = merged[^Math.Min(merged.Length, 524288)..];
+                agentChars = merged.Length;
+            }
+            entries[^1] = last with { Text = merged };
+            return;
+        }
+        agentChars += text.Length;
+        entries.Add(new TimelineEntry(EntryKind.Agent, text, "", ""));
+    }
+
+    static TimelineEntry Status(string label, string detail) => new(EntryKind.Status, "", label, detail);
+
+    static string StatusOf(JsonElement payload) =>
+        payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "";
+
+    static string DetailStatus(JsonElement payload)
+    {
+        var status = StatusOf(payload);
+        var code = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("errorCode", out var e) ? e.GetString() : null;
+        return string.IsNullOrEmpty(code) ? status : $"{status} ({code})";
+    }
+
+    static string OpId(JsonElement payload) =>
+        payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("operationId", out var id)
+            ? id.ValueKind == JsonValueKind.String ? id.GetString() ?? "" : id.GetRawText().Trim('"')
+            : "";
+
+    static bool TryGetProperty(JsonElement obj, string name, out JsonElement value)
+    {
+        if (obj.ValueKind == JsonValueKind.Object)
+        {
+            if (obj.TryGetProperty(name, out value)) return true;
+            foreach (var p in obj.EnumerateObject())
+            {
+                if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = p.Value;
+                    return true;
+                }
+            }
+        }
+        value = default;
+        return false;
+    }
+
+    static long ReadSequence(JsonElement seq) => seq.ValueKind switch
+    {
+        JsonValueKind.String => long.Parse(seq.GetString()!),
+        JsonValueKind.Number => seq.GetInt64(),
+        _ => throw new FormatException("sequence")
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        stop.Cancel();
+        socket?.Abort();
+        if (stream != null) try { await stream; } catch (OperationCanceledException) { }
+        if (poll != null) try { await poll; } catch (OperationCanceledException) { }
+        stop.Dispose();
+    }
+
+    enum EntryKind { Status, Agent, Notice }
+    readonly record struct TimelineEntry(EntryKind Kind, string Text, string Label, string Detail);
 }

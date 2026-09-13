@@ -11,15 +11,19 @@ def test_pinned_api_adapter_sends_only_one_prompt(monkeypatch):
         if path == "/global/health": return httpx.Response(200,json={"healthy":True,"version":"fixture"})
         if path == "/session": return httpx.Response(200,json={"id":"s1"})
         if path.endswith("prompt_async"): return httpx.Response(204)
-        if path.endswith("/message"): return httpx.Response(200,json=[{"info":{"role":"assistant","finish":"stop","time":{"completed":1}},"parts":[{"type":"text","text":"done"}]}])
+        if path.endswith("/message"): return httpx.Response(200,json=[{"info":{"role":"assistant","finish":"stop","time":{"completed":1}},"parts":[{"id":"tool1","type":"tool","tool":"read","input":{"path":"a.cs","token":"secret"}},{"type":"text","text":"done"}]}])
         if path == "/session/status": return httpx.Response(200,json={})
         if path == "/event": return httpx.Response(200,text="data: {\"type\":\"server.connected\"}\n\n")
         return httpx.Response(404)
     async def exercise():
         code=OpenCode(transport=httpx.MockTransport(handler));await code.health();await code.create()
-        async def emit(text): pass
+        preview=[]
+        async def emit(text): preview.append(text)
         assert await code.run("change",emit,asyncio.Event()) == "done"
         await code.close()
+        assert preview[0] == "[tool:read] path=a.cs\n"
+        assert "secret" not in "".join(preview)
+        assert "done" in preview
     asyncio.run(exercise())
     assert calls.count(("POST","/session/s1/prompt_async")) == 1
 

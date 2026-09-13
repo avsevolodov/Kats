@@ -19,9 +19,11 @@ builder.WebHost.ConfigureKestrel(k =>
     k.Limits.MaxRequestBodySize = 32 * 1024;
     k.ListenAnyIP(8080, l => l.Protocols = HttpProtocols.Http1);
     var browserCertificate = builder.Configuration["Browser:ServerCertificate"];
+    // Prefer HTTP/1.1 for browser TLS so classic WebSocket Upgrade (GET) is used;
+    // HTTP/2 Extended CONNECT is also accepted by stream middleware if enabled later.
     if (!string.IsNullOrEmpty(browserCertificate)) k.ListenAnyIP(8443, l =>
     {
-        l.Protocols = HttpProtocols.Http1AndHttp2;
+        l.Protocols = HttpProtocols.Http1;
         l.UseHttps(browserCertificate, builder.Configuration["Browser:ServerCertificatePassword"]);
     });
     var path = builder.Configuration["Runner:ServerCertificate"];
@@ -69,7 +71,8 @@ builder.Services.AddAuthentication(o => { o.DefaultScheme = CookieAuthentication
                 throw new InvalidOperationException("HTTP OIDC is restricted to Development loopback authorities");
             o.RequireHttpsMetadata = false;
         }
-        o.ResponseType = OpenIdConnectResponseType.Code; o.UsePkce = true; o.SaveTokens = false; o.MapInboundClaims = false; o.GetClaimsFromUserInfoEndpoint = false;
+        o.ResponseType = OpenIdConnectResponseType.Code; o.UsePkce = true; o.SaveTokens = true; o.MapInboundClaims = false; o.GetClaimsFromUserInfoEndpoint = false;
+        o.Scope.Clear(); o.Scope.Add("openid"); o.Scope.Add("profile");
         o.TokenValidationParameters.RoleClaimType = "roles";
         o.Events.OnTokenValidated = context =>
         {
@@ -103,8 +106,20 @@ app.MapGet("/health/ready", async (IDbContextFactory<PlatformDb> factory) => { a
 app.MapGet("/login", () => Results.Challenge(new AuthenticationProperties { RedirectUri = "/" }, [OpenIdConnectDefaults.AuthenticationScheme]));
 app.MapGet("/logout", async (HttpContext c) =>
 {
-    await c.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-    await c.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
+    // SaveTokens stores id_token for Keycloak end_session id_token_hint.
+    var redirect = new AuthenticationProperties { RedirectUri = "/" };
+    await c.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme, redirect);
+    await c.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme, redirect);
+});
+// Path match only (any method): HTTP/2 WebSocket is CONNECT; MapGet → 405.
+app.Map("/api/v1/stream", async (HttpContext context, SqlStore store, IConfiguration config) =>
+{
+    if (context.User.Identity?.IsAuthenticated != true)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+    await BrowserStream.Handle(context, store, config);
 });
 static string Owner(HttpContext c) => c.User.FindFirstValue("sub") ?? throw new PlatformException("UNAUTHENTICATED", 401);
 static bool IsAdmin(HttpContext c, string role) => c.User.IsInRole(role);
@@ -117,25 +132,25 @@ api.MapPost("/repositories", async (UpsertRepository body, HttpContext c, IAntif
     await a.ValidateRequestAsync(c);
     var created = await s.CreateRepository(body);
     return Results.Created($"/api/v1/repositories/{created.RepositoryId}", created);
-}).RequireAuthorization("Admin");
+});
 api.MapPut("/repositories/{id:guid}", async (Guid id, UpsertRepository body, HttpContext c, IAntiforgery a, SqlStore s) =>
 {
     await a.ValidateRequestAsync(c);
     return Results.Ok(await s.UpdateRepository(id, body));
-}).RequireAuthorization("Admin");
+});
 api.MapDelete("/repositories/{id:guid}", async (Guid id, HttpContext c, IAntiforgery a, SqlStore s) =>
 {
     await a.ValidateRequestAsync(c);
     await s.DisableRepository(id);
     return Results.NoContent();
-}).RequireAuthorization("Admin");
+});
+api.MapGet("/runners", async (SqlStore s) => Results.Ok(new { items = await s.ListConnectedRunners() })).RequireAuthorization("Admin");
 api.MapPost("/runs", async (StartRun r, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); var result = await s.Start(Owner(c), r); return Results.Accepted(result.StatusUrl, result); });
 api.MapGet("/runs", async (HttpContext c, SqlStore s) => Results.Ok(new { items = await s.List(Owner(c)), nextCursor = (string?)null }));
 api.MapGet("/runs/{id:guid}", async (Guid id, HttpContext c, SqlStore s) => await s.Get(Owner(c), id));
 api.MapPost("/runs/{id:guid}/cancel", async (Guid id, CancelRun r, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); var result = await s.Cancel(Owner(c), id, r.CommandId); return Results.Accepted(result.StatusUrl, result); });
 api.MapGet("/runs/{id:guid}/events", async (Guid id, HttpContext c, SqlStore s) => { var raw = c.Request.Query["afterSequence"].FirstOrDefault() ?? "0"; Rules.Require(long.TryParse(raw, out var n), "INVALID_CURSOR", 400); return await s.Events(Owner(c), id, n); });
 api.MapGet("/runs/{id:guid}/artifacts/{artifact:guid}", async (Guid id, Guid artifact, HttpContext c, SqlStore s) => { var a = await s.Artifact(Owner(c), id, artifact); return Results.File(a.Content, "text/plain; charset=utf-8", a.Kind == "patch" ? "changes.patch" : "summary.txt"); });
-api.MapGet("/stream", BrowserStream.Handle);
 app.MapGrpcService<RunnerService>();
 app.MapFallbackToFile("index.html");
 app.Run();

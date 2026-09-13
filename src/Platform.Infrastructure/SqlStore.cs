@@ -81,6 +81,7 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
     });
     static async Task<RunRow> Owned(PlatformDb db, string owner, Guid id) =>
         await db.Runs.SingleOrDefaultAsync(x => x.Id == id && x.Owner == owner) ?? throw new PlatformException("NOT_FOUND", 404);
+    public const int ConnectedFreshnessSeconds = RunnerPresence.FreshnessSeconds;
     public async Task<IReadOnlyList<RepositoryView>> Repositories(bool includeDisabled = false)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -88,6 +89,63 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
         if (!includeDisabled) q = q.Where(x => x.Enabled);
         return (await q.OrderBy(x => x.DisplayName).ToListAsync()).Select(RepoView).ToList();
     }
+    public Task TouchRunnerSession(string bootId, string workload, string? version = null) => Write(async (db, now) =>
+    {
+        Rules.Require(Guid.TryParse(bootId, out _), "INVALID_BOOT", 400);
+        Rules.Require(!string.IsNullOrWhiteSpace(workload), "INVALID_WORKLOAD", 400);
+        var row = await db.RunnerSessions.FindAsync(bootId);
+        if (row == null)
+        {
+            db.RunnerSessions.Add(new RunnerSessionRow
+            {
+                BootId = bootId,
+                WorkloadSubject = workload,
+                Version = Truncate(version ?? "", 200),
+                LastSeenAt = now
+            });
+        }
+        else
+        {
+            row.WorkloadSubject = workload;
+            row.LastSeenAt = now;
+            if (!string.IsNullOrWhiteSpace(version)) row.Version = Truncate(version, 200);
+        }
+        return true;
+    });
+    public async Task<IReadOnlyList<RunnerView>> ListConnectedRunners(TimeSpan? freshness = null)
+    {
+        var window = freshness ?? TimeSpan.FromSeconds(ConnectedFreshnessSeconds);
+        await using var db = await factory.CreateDbContextAsync();
+        var now = await db.Database.SqlQueryRaw<DateTime>("SELECT SYSUTCDATETIME() AS [Value]").SingleAsync();
+        var cutoff = now - window;
+        var sessions = await db.RunnerSessions.AsNoTracking()
+            .Where(x => x.LastSeenAt >= cutoff)
+            .OrderByDescending(x => x.LastSeenAt)
+            .ToListAsync();
+        if (sessions.Count == 0) return [];
+        var boots = sessions.Select(x => x.BootId).ToList();
+        var ops = await db.Operations.AsNoTracking()
+            .Where(x => x.BootId != null && boots.Contains(x.BootId) && (x.Status == "LEASED" || x.Status == "RUNNING"))
+            .ToListAsync();
+        var byBoot = ops.GroupBy(x => x.BootId!).ToDictionary(g => g.Key, g => g.First());
+        return sessions.Select(s =>
+        {
+            byBoot.TryGetValue(s.BootId, out var op);
+            return new RunnerView(
+                Guid.Parse(s.BootId),
+                WorkloadHint(s.WorkloadSubject),
+                s.Version,
+                DateTime.SpecifyKind(s.LastSeenAt, DateTimeKind.Utc),
+                op == null ? "idle" : "busy",
+                op?.RunId,
+                op?.Id,
+                op?.Status);
+        }).ToList();
+    }
+    static string WorkloadHint(string workload) =>
+        string.IsNullOrEmpty(workload) ? "" : workload.Length <= 8 ? workload : workload[^8..];
+    static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max];
     public Task<RepositoryView> CreateRepository(UpsertRepository request)
     {
         var url = Rules.ValidateRepository(request, AllowedHosts, requireCredential: request.AuthKind == "Pat");
@@ -155,7 +213,11 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         var r = await Owned(db, owner, id);
         Rules.Require(after >= r.EarliestSequence - 1, "CURSOR_EXPIRED", 410);
-        Rules.Require(after >= 0 && after < r.NextSequence, "INVALID_CURSOR", 400);
+        Rules.Require(after >= 0, "INVALID_CURSOR", 400);
+        // Cursor past high watermark means "caught up" — empty page, not an error
+        // (avoids killing the browser stream on a benign race).
+        if (after >= r.NextSequence)
+            return new([], (r.NextSequence - 1).ToString(), r.EarliestSequence.ToString(), false);
         var rows = await db.Events.AsNoTracking().Where(x => x.RunId == id && x.Sequence > after).OrderBy(x => x.Sequence).Take(Math.Clamp(limit, 1, 100)).ToListAsync();
         var items = rows.Select(x => new EventView(x.Sequence.ToString(), x.Kind, JsonSerializer.Deserialize<JsonElement>(x.Payload), x.CreatedAt)).ToList();
         return new(items, (r.NextSequence - 1).ToString(), r.EarliestSequence.ToString(), (rows.LastOrDefault()?.Sequence ?? after) < r.NextSequence - 1);
@@ -194,7 +256,7 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
     });
     public Task MarkUnknown(Guid opId) => Write(async (db, now) =>
     { var op = await db.Operations.SingleAsync(x => x.Id == opId); if (!States.Terminal(op.Status)) { op.Status = "UNKNOWN"; op.ErrorCode = "ABORT_UNCONFIRMED"; } return true; });
-    public Task Reap() => Write(async (db, now) =>
+    public Task<int> Reap() => Write(async (db, now) =>
     {
         var ops = await db.Operations.Where(x => (x.Status == "LEASED" || x.Status == "RUNNING") && x.LeaseUntil < now).ToListAsync();
         foreach (var op in ops) { op.Status = "UNKNOWN"; op.ErrorCode = "RUNNER_LEASE_EXPIRED"; }

@@ -11,7 +11,7 @@
 | Keycloak, realm kats-dev | Compose | http://localhost:8180 |
 | C# API + Blazor | WSL/native | https://localhost:8443 |
 | C# Temporal worker | WSL/native | Без входящего порта |
-| Python wrapper, fake или OpenCode CLI | WSL/native | Исходящий mTLS к localhost:8081 |
+| Python wrapper, fake или OpenCode CLI | WSL/native | Исходящий mTLS к 127.0.0.1:8081 |
 
 Выделите Docker/WSL ориентировочно 4 CPU и 8 ГБ RAM, оставьте место для SQL image
 и NuGet-кэша. Нужны Git, Python 3.12 с venv, OpenSSL, .NET SDK из `global.json`,
@@ -32,7 +32,7 @@ uv run --locked scripts/test_env.py up
 и SQL login `kats_dev` с правами чтения/записи. SA используется только для bootstrap.
 В таблицу репозиториев добавляется **Fake smoke fixture**; его URL фиктивный,
 fake-runner не выполняет Git fetch и не вызывает модель. Управление allowlist —
-UI `/repositories` под `admin`.
+UI `/repositories` для любого вошедшего пользователя.
 
 Конфигурация тестового профиля: `.local/test-settings.json`.
 Пароли: `.local/test-infra/credentials.json` — `admin`, `developer`, `other` (Keycloak bootstrap admin совпадает с паролем пользователя `admin`).

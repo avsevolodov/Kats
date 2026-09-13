@@ -1,10 +1,16 @@
 import asyncio
+import os
+import sys
 import uuid
 from pathlib import Path
 import grpc
 from . import runner_pb2 as pb
 from . import runner_pb2_grpc as rpc
 from .core import RunnerError
+
+
+def status(message: str) -> None:
+    print(f"runner: {message}", file=sys.stderr, flush=True)
 
 
 class Transport:
@@ -19,9 +25,18 @@ class Transport:
         self.closing = False
 
     async def run(self):
+        ssl_name = os.environ.get("PLATFORM_GRPC_SSL_NAME", "localhost")
         while not self.closing:
             try:
-                async with grpc.aio.secure_channel(self.target, self.credentials, options=[("grpc.max_receive_message_length", 6*1024*1024), ("grpc.max_send_message_length", 6*1024*1024)]) as channel:
+                status(f"grpc dial {self.target} (tls name {ssl_name})")
+                async with grpc.aio.secure_channel(self.target, self.credentials, options=[
+                    ("grpc.max_receive_message_length", 6*1024*1024),
+                    ("grpc.max_send_message_length", 6*1024*1024),
+                    # Platform mTLS is direct; corporate HTTP_PROXY must not intercept localhost/cluster gRPC.
+                    ("grpc.enable_http_proxy", 0),
+                    # Dev cert SAN is localhost/api; WSL dials the Windows host IP.
+                    ("grpc.ssl_target_name_override", ssl_name),
+                ]) as channel:
                     self.call = rpc.RunnerGatewayStub(channel).WorkChannel()
                     hello = pb.RunnerFrame(message_id=str(uuid.uuid4()), hello=pb.Hello(protocol_version=1, boot_id=self.boot, runner_version="0.1.0", opencode_version=self.version))
                     await self.call.write(hello)
@@ -29,17 +44,22 @@ class Transport:
                     if not response.HasField("hello"):
                         raise RunnerError("HELLO_REJECTED")
                     self.connected.set()
+                    status("grpc hello accepted")
                     while not self.closing:
                         frame = await self.call.read()
                         if frame is grpc.aio.EOF:
-                            raise ConnectionError()
+                            raise ConnectionError("channel eof")
                         if frame.HasField("abort"):
                             self.abort.set()
                         future = self.pending.get(frame.correlation_message_id)
                         if future is not None and not future.done():
                             future.set_result(frame)
-            except (grpc.RpcError, ConnectionError, TimeoutError, RunnerError):
-                pass
+            except (grpc.RpcError, ConnectionError, TimeoutError, RunnerError, OSError) as exc:
+                if not self.closing:
+                    kind = type(exc).__name__
+                    detail = getattr(exc, "code", lambda: None)()
+                    code = detail.name if detail is not None and hasattr(detail, "name") else str(exc)[:120]
+                    status(f"grpc disconnected ({kind}: {code}); retry in 1s")
             finally:
                 self.connected.clear()
                 for f in list(self.pending.values()):

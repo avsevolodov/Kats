@@ -96,6 +96,58 @@ def init():
     print("Created .local/settings.json and 30-day development certificates.")
 
 
+def wsl_windows_host():
+    """Best-effort Windows host IP as seen from WSL2 (not 127.0.0.1, not DNS proxy)."""
+    try:
+        version = Path("/proc/version").read_text(encoding="utf-8", errors="ignore").lower()
+    except OSError:
+        return None
+    if "microsoft" not in version and "wsl" not in version:
+        return None
+
+    def usable(ip: str) -> bool:
+        # 10.255.255.254 is a WSL DNS tunnel/proxy, not an app gateway.
+        return bool(ip) and ip not in {"127.0.0.1", "::1", "10.255.255.254"}
+
+    try:
+        route = subprocess.run(
+            ["ip", "-4", "route", "show", "default"],
+            check=False, capture_output=True, text=True, timeout=2)
+        parts = route.stdout.split()
+        if "via" in parts:
+            via = parts[parts.index("via") + 1]
+            if usable(via):
+                return via
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        pass
+    try:
+        for line in Path("/etc/resolv.conf").read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("nameserver"):
+                candidate = line.split()[1] if len(line.split()) >= 2 else ""
+                if usable(candidate):
+                    return candidate
+    except OSError:
+        return None
+    return None
+
+
+def platform_grpc(settings, docker):
+    """Resolve runner→API gRPC target.
+
+    Compose: service DNS. Native WSL→Windows API: default gateway IP (refreshed each run).
+    Optional local.platformGrpc override, or \"auto\" to force detection.
+    """
+    if docker:
+        return "api:8081"
+    override = str((settings.get("local") or {}).get("platformGrpc") or "").strip()
+    if override and override.lower() != "auto":
+        return override
+    host = wsl_windows_host()
+    if host:
+        return f"{host}:8081"
+    return "127.0.0.1:8081"
+
+
 def environments(settings, mode):
     docker = mode == "compose"
     def path(native, container):
@@ -118,12 +170,14 @@ def environments(settings, mode):
     if settings["oidc"].get("allowLoopbackHttp", False):
         api["Oidc__AllowLoopbackHttp"] = "true"
     worker = {**database, "Temporal__Endpoint": settings["temporal"]["endpoint"],
-              "Temporal__Namespace": settings["temporal"]["namespace"]}
+              "Temporal__Namespace": settings["temporal"]["namespace"],
+              "Security__DataProtectionCertificate": path("certs/api/server.pfx", "/certs/api/server.pfx")}
     if settings["temporal"].get("mtls"):
         for key, filename in (("CertPath", "tls.crt"), ("KeyPath", "tls.key"), ("CaPath", "ca.crt")):
             worker["Temporal__" + key] = path("temporal/" + filename, "/certs/temporal/" + filename)
     runner = {"RUNNER_MODE": settings["runner"]["mode"],
-              "PLATFORM_GRPC": "api:8081" if docker else "localhost:8081",
+              "PLATFORM_GRPC": platform_grpc(settings, docker),
+              "PLATFORM_GRPC_SSL_NAME": "api" if docker else "localhost",
               "RUNNER_CA": path("certs/runner/ca.crt", "/certs/runner/ca.crt"),
               "RUNNER_CERT": path("certs/runner/tls.crt", "/certs/runner/tls.crt"),
               "RUNNER_KEY": path("certs/runner/tls.key", "/certs/runner/tls.key"),
@@ -197,6 +251,8 @@ def main():
         env = {**os.environ, "DOTNET_ENVIRONMENT": "Development", "ASPNETCORE_ENVIRONMENT": "Development"}
     if name == "runner":
         env["PYTHONPATH"] = str(ROOT / "agents")
+        # Non-secret: helps confirm WSL→Windows auto target each launch.
+        print(f"Launching runner with PLATFORM_GRPC={env.get('PLATFORM_GRPC')}", file=sys.stderr)
     os.chdir(ROOT)
     os.execvpe(commands[name][0], commands[name], env)
 

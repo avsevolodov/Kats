@@ -38,6 +38,9 @@ IF OBJECT_ID(N'dbo.Artifacts',N'U') IS NULL
 IF OBJECT_ID(N'dbo.DataProtectionKeys',N'U') IS NULL
   CREATE TABLE dbo.DataProtectionKeys(Id int IDENTITY NOT NULL PRIMARY KEY, FriendlyName nvarchar(max) NULL, Xml nvarchar(max) NULL);
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='IX_Runs_Owner_CreatedAt' AND object_id=OBJECT_ID('dbo.Runs')) CREATE INDEX IX_Runs_Owner_CreatedAt ON dbo.Runs(Owner,CreatedAt);
+COMMIT;
+GO
+-- Separate batch: AuthKind must exist before this UPDATE is compiled.
 IF COL_LENGTH(N'dbo.Repositories',N'AuthKind') IS NOT NULL
   UPDATE dbo.Repositories SET AuthKind=N'Pat' WHERE CredentialRef <> N'' AND AuthKind=N'Anonymous' AND CredentialCipher IS NULL;
-COMMIT;
+GO

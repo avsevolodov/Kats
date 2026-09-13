@@ -5,8 +5,11 @@
     <header>
         <span class="brand">AGENT PLATFORM</span>
         <nav class="nav">
-            @if (isAdmin) { <a href="/repositories">Репозитории</a> }
-            @if (signedIn) { <a href="/logout">Выйти</a> } else { <a href="/login">Войти</a> }
+            @if (signedIn) {
+                <a href="/repositories">Репозитории</a>
+                @if (isAdmin) { <a href="/agents">Агенты</a> }
+                <a href="/logout">Выйти</a>
+            } else { <a href="/login">Войти</a> }
         </nav>
     </header>
     <h1>Задачи разработки</h1>
@@ -28,7 +31,7 @@
 @code {
     record Token(string RequestToken);
     List<RepositoryView> repositories = []; List<RunView> runs = [];
-    Guid repository; string commit = "", prompt = ""; string? error; bool busy; bool signedIn; bool isAdmin; StartRun? pending;
+    Guid repository; string commit = "main", prompt = ""; string? error; bool busy; bool signedIn; bool isAdmin; StartRun? pending;
     protected override async Task OnInitializedAsync() => await Load();
     async Task Load()
     {

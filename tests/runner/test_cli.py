@@ -22,6 +22,8 @@ with open("capture.json", "w") as f:
 mode=os.environ.get("TEST_CLI_MODE", "ok")
 if mode == "sleep": time.sleep(60)
 if mode == "bad": print("not json"); sys.exit(0)
+print(json.dumps({"type":"step_start", "part":{}}), flush=True)
+print(json.dumps({"type":"tool", "part":{"tool":"read","input":{"path":"src/a.cs","token":"must-not-leak"}}}), flush=True)
 print(json.dumps({"type":"text", "part":{"text":"result"}}), flush=True)
 if mode == "exit": sys.exit(3)
 if mode != "partial": print(json.dumps({"type":"step_finish", "part":{"reason":"stop"}}))
@@ -49,7 +51,11 @@ def test_cli_stdin_json_and_no_repeat(cli):
         assert "--attach" not in capture["args"]
         assert capture["credential"] is None
         assert capture["permission"]["*"] == "deny"
-        assert preview == ["result"]
+        assert preview[0] == "[шаг] начало\n"
+        assert preview[1] == "[tool:read] path=src/a.cs\n"
+        assert "must-not-leak" not in "".join(preview)
+        assert "result" in preview
+        assert preview[-1] == "[шаг] завершён (stop)\n"
         with pytest.raises(RunnerError, match="PROMPT_ALREADY_SENT"):
             await cli.run(prompt, emit, asyncio.Event())
         await cli.cleanup()

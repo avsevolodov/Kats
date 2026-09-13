@@ -122,6 +122,17 @@ Browser/smoke_ui.py после Rebuild Api+Ui — на машине разраб
 Evidence: правки Program.cs и Blazor pages; live browser smoke на машине
 разработчика после Rebuild.
 
+## Correction: Keycloak logout id_token_hint
+
+Federated `/logout` падал в Keycloak («Missing parameters: id_token_hint»),
+потому что `SaveTokens=false` не сохранял id_token. Включены SaveTokens,
+openid/profile scopes и RedirectUri на SignOut; в test realm — post.logout.redirect.uris.
+Нужен повторный login после обновления (старая cookie без id_token). Переимпорт
+realm или правка client attributes — для нового post-logout URI.
+
+Evidence: код Program.cs и test_env realm; live logout — после Rebuild API и
+нового входа на стенде разработчика.
+
 ## Correction: base ref accepts branch
 
 Пользовательский Start с именем ветки получал INVALID_COMMIT: валидация и runner
@@ -134,18 +145,72 @@ OpenAPI/UI/tests обновлены. Это ослабление FR-012 «тол
 Evidence: unit test ValidBaseRef/main и reject `../evil`; Python workspace path
 изменён; live git fetch ветки — на стенде разработчика.
 
-## Admin repositories + PAT credentials
+## Global repositories + PAT credentials
 
-Глобальный allowlist репозиториев управляется только admin: OpenAPI
-POST/PUT/DELETE `/api/v1/repositories`, UI `/repositories`, OIDC role `admin`
-(`Security:AdminRole`). GET list без секретов; PAT в `CredentialCipher` через
-Data Protection (`GitCredentials.v1`). Assignment несёт `auth_kind`; runner
-запрашивает `FetchGitCredential` и удаляет temp askpass после fetch. Legacy
-`CredentialRef` file mount сохранён. Dev realm: пользователь `admin` + mapper
-`roles`. Kerberos не реализовывался.
+Глобальный allowlist: OpenAPI POST/PUT/DELETE `/api/v1/repositories` и UI
+`/repositories` для любого authenticated пользователя. GET list без секретов;
+PAT в `CredentialCipher` через Data Protection (`GitCredentials.v1`). Assignment
+несёт `auth_kind`; runner запрашивает `FetchGitCredential` и удаляет temp askpass
+после fetch. Legacy `CredentialRef` file mount сохранён. Kerberos не реализовывался.
+(Ранее CRUD был только у admin — ограничение снято по запросу.)
 
 Evidence: OpenAPI/proto/SQL/data-model обновлены; unit Rules host/credential
 (15 Platform.Tests checks); Python wipe/anonymous + realm tests (5 passed via
 `C:\Program Files\uv\uv.exe`); Infrastructure/Api/Worker build succeeded with
-installed SDK roll-forward. Live MSSQL/OIDC/admin UI и real GitHub PAT clone
-в этой среде не подтверждены.
+installed SDK roll-forward. Добавлен идемпотентный `sql/002-repository-credentials.sql`
+для уже существующих БД без AuthKind/ProviderHint/CredentialCipher.
+Live MSSQL/OIDC/admin UI и real GitHub PAT clone в этой среде не подтверждены.
+
+## Admin connected runners UI
+
+Реализована таблица `RunnerSessions` (`sql/003-runner-sessions.sql`): upsert на
+Hello и каждом gRPC frame, online = LastSeenAt ≤15 s. Admin-only
+`GET /api/v1/runners` join к LEASED/RUNNING operations; UI `/agents` с poll 5 s.
+Таблица не используется для Claim/affinity. OpenAPI Runner/Runners добавлены.
+test_env bootstrap включает 003.
+
+Evidence: Platform.Tests runner view wire (19 checks, hint без полного thumbprint,
+idle/busy, freshness=15); DDL + bootstrap tests (`tests/dev/test_test_env.py` 3 passed).
+Infrastructure/Api build succeeded with SDK 10.0.400 roll-forward. Live MSSQL
+touch/list, multi-replica presence и browser admin smoke в этой среде не подтверждены.
+После добавления RunnerSessions Start падал на FK Commands/Events→Runs: EF не знал
+порядок INSERT. В OnModelCreating объявлены Restrict FK по схеме SQL.
+
+## UI agent execution timeline
+
+Страница Run показывает хронологический ход: platform-события (accepted/started/
+status/cancel/completed) и лог агента из OutputBatch. Баннеры reconnect и
+истёкшей истории; текст экранируется Blazor. Runner форвардит в preview
+санитизированные step/tool markers (CLI и server message parts) без новых
+durable tool-event kinds и без raw payloads/reasoning. Fake mode эмитит
+маркеры для проверки UI без LLM.
+
+Evidence: добавлены `presentation.py` и `tests/runner/test_presentation.py`;
+обновлены CLI/server adapters и `test_cli`/`test_opencode_contract`.
+`uv run pytest` (presentation + opencode contract): 5 passed.
+CLI subprocess fixtures требуют POSIX — на этой Windows-среде не гонялись.
+T023 не закрыт: нужен browser smoke (fake runner → WS → timeline).
+
+## Correction: empty Run timeline while events exist
+
+Live run `cedf5f6d-…` имел 7 SQL Events (Accepted→…→RunCompleted/NEEDS_ATTENTION),
+но UI показывал пустой «Ход выполнения» при корректном статусе из GET /runs.
+Причины: `GetFromJsonAsync<JsonElement>` глотал ошибки; REST poll отключался при
+«Подключено»; при уже terminal статусе WS сразу выходил без догрузки истории.
+Исправлено: `JsonDocument` + явные HTTP ошибки, REST poll ~500 ms параллельно с WS,
+догрузка истории на terminal; `Events(after >= NextSequence)` → пустая страница
+вместо INVALID_CURSOR.
+
+Evidence: MSSQL select по run id подтвердил 7 events / NextSequence=8; browser
+smoke после Rebuild API+UI — на стенде разработчика.
+
+## Correction: WebSocket stream 405
+
+DevTools: `Error during WebSocket handshake: Unexpected response code: 405` на
+`/api/v1/stream` при живом Worker/runner. HTTP/2 WebSocket = CONNECT; `MapGet` /
+method-filtered endpoint даёт 405 до handler. Исправлено: stream обрабатывается
+middleware после auth (GET+CONNECT), без endpoint method metadata; browser HTTPS
+оставлен на HTTP/1.1. CA trust (`.local/certs/ca.crt`) не связан с 405.
+
+Evidence: правка Program.cs; нужен полный Restart API (не hot reload) и проверка
+Network: `stream` → 101.
