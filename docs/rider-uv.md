@@ -65,6 +65,31 @@ Development-файлы исключены из Docker context и publish output.
 
 ## Python runner и проверки
 
+### Проверка загрузки UI
+
+API регистрирует `MapStaticAssets`: URL с fingerprint (включая Hot Reload
+`*.lib.module.js`) обслуживаются через endpoint manifest .NET 10.
+`UseStaticFiles` сам по себе не обслуживает такие псевдонимы физических файлов.
+См. [документацию Microsoft](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/static-files?view=aspnetcore-10.0).
+
+После обновления остановите API и выполните Rebuild Solution в Rider. Если ошибка
+остаётся, удалите только `bin` и `obj` проектов Platform.Api и Platform.Ui,
+повторите сборку и откройте страницу с отключённым кешем (Ctrl+Shift+R).
+Не удаляйте .local и appsettings.Development.json.
+
+При запущенном API можно проверить запуск WASM и CSS без входа, SQL и runner:
+
+```bash
+uv sync --locked --group browser
+uv run --locked --group browser playwright install chromium
+uv run --locked --group browser scripts/smoke_ui.py
+```
+
+Скрипт ожидает настоящий заголовок Blazor, проверяет CSS и ошибки ресурсов
+`/_content/`, `/_framework/`. Ответ 401 от бизнес-API до входа ожидаем.
+
+### Runner
+
 ```bash
 uv run --locked scripts/test_env.py run runner
 uv run --locked pytest tests/runner tests/dev -q

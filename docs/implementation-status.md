@@ -76,3 +76,15 @@ MSBuild Content metadata API и Worker подтверждает CopyToPublishDir
 Development исключён из Git и Docker context. Live API/WASM/Rider startup не проверен.
 После восстановления NuGet packages Worker собран .NET SDK 10.0.100:
 0 warnings, 0 errors. Полная API/WASM сборка остаётся отдельным открытым gate.
+
+## Hosted WASM: fingerprinted module 404
+
+Исправлена отсутствующая регистрация MapStaticAssets в API: fingerprinted URL
+Hot Reload initializer требует endpoint manifest, а не только UseStaticFiles.
+Добавлен scripts/smoke_ui.py: anonymous browser startup, CSS и ошибки загрузки
+/_framework/ и /_content/; проверка не требует SQL/Temporal/OIDC login.
+
+Evidence: Python syntax compile и git diff --check прошли. В текущей среде отсутствует
+NuGet cache; build остановлен во время восстановления зависимостей без результата.
+Реальный browser/Rider smoke не выполнен, работоспособность у пользователя ещё
+требует проверки. Hot Reload не отключён; статические файлы не копируются вручную.

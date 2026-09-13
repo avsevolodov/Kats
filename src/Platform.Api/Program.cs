@@ -80,6 +80,9 @@ app.Use(async (context, next) =>
     catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
 });
 app.UseBlazorFrameworkFiles(); app.UseStaticFiles(); app.UseWebSockets(); app.UseAuthentication(); app.UseAuthorization();
+// Fingerprinted URLs (including WASM Hot Reload initializers) are manifest endpoints,
+// not physical filenames. Static file middleware alone cannot serve these aliases.
+app.MapStaticAssets().AllowAnonymous();
 app.MapGet("/health/live", () => Results.Ok(new { status = "alive" }));
 app.MapGet("/health/ready", async (IDbContextFactory<PlatformDb> factory) => { await using var db = await factory.CreateDbContextAsync(); return await db.Database.CanConnectAsync() ? Results.Ok() : Results.StatusCode(503); });
 app.MapGet("/login", () => Results.Challenge(new AuthenticationProperties { RedirectUri = "/" }, [OpenIdConnectDefaults.AuthenticationScheme]));
