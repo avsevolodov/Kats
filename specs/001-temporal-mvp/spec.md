@@ -44,6 +44,11 @@ Branch: `001-temporal-mvp` • Status: Ready for implementation with infrastruct
 
 ### US6 — Development без Kubernetes (дополнение)
 
+По отдельному запросу пользователя добавлен локальный тестовый профиль с MSSQL,
+Temporal dev server и Keycloak в Docker Compose на WSL. Это исключение только для
+developer testing: не расширяет разрешения Helm на in-cluster БД/PVC/hostPath.
+Fake-runner — первый smoke, затем реальный CLI. Описание: `docs/developer-test-environment.md`.
+
 Native также поддерживает `OPENCODE_BACKEND=cli`: локальный `opencode run` через
 stdin/NDJSON вместо server API. Begin хранит wrapper execution token; CLI cancellation
 после старта даёт UNKNOWN, а не подтверждённый CANCELLED. Это расширение FR-003

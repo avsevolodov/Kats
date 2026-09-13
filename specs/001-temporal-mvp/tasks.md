@@ -2,6 +2,9 @@
 
 ## Дополнение: запуск без Kubernetes (US6)
 
+- [x] DEV005 Генератор тестового realm, отдельных credentials/settings и bootstrap SQL; тесты идемпотентности и сохранения данных.
+- [ ] DEV006 WSL Compose up и smoke_local.py на реальном стенде (MSSQL/Temporal/OIDC + fake runner); автоматизация готова, live gate открыт.
+
 - [ ] DEV004 Native CLI adapter: stdin/JSON, exit/timeout/cancel, защита от повтора; live OpenCode smoke после subprocess fixtures.
 
 - [x] DEV001 Настраиваемый native workspace OpenCode; тест directory propagation.

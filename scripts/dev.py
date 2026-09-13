@@ -90,6 +90,8 @@ def environments(settings, mode):
            "Oidc__Authority": settings["oidc"]["authority"],
            "Oidc__ClientId": settings["oidc"]["clientId"],
            "Oidc__ClientSecret": settings["oidc"]["clientSecret"]}
+    if settings["oidc"].get("allowLoopbackHttp", False):
+        api["Oidc__AllowLoopbackHttp"] = "true"
     worker = {**database, "Temporal__Endpoint": settings["temporal"]["endpoint"],
               "Temporal__Namespace": settings["temporal"]["namespace"]}
     if settings["temporal"].get("mtls"):
@@ -126,6 +128,7 @@ def environments(settings, mode):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--settings", type=Path, default=LOCAL / "settings.json")
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("init")
     render = sub.add_parser("render"); render.add_argument("mode", choices=("local", "compose"))
@@ -133,7 +136,7 @@ def main():
     args = p.parse_args()
     if args.action == "init":
         init(); return
-    settings = json.loads((LOCAL / "settings.json").read_text())
+    settings = json.loads(args.settings.read_text())
     envs = environments(settings, args.mode if args.action == "render" else "local")
     if args.action == "render":
         for name, env in envs.items():

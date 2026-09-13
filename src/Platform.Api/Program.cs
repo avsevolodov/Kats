@@ -59,6 +59,13 @@ builder.Services.AddAuthentication(o => { o.DefaultScheme = CookieAuthentication
     .AddOpenIdConnect(o =>
     {
         o.Authority = builder.Configuration["Oidc:Authority"]; o.ClientId = builder.Configuration["Oidc:ClientId"]; o.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+        if (builder.Configuration.GetValue<bool>("Oidc:AllowLoopbackHttp"))
+        {
+            if (!builder.Environment.IsDevelopment() || !Uri.TryCreate(o.Authority, UriKind.Absolute, out var authority)
+                || !authority.IsLoopback || authority.Scheme != "http")
+                throw new InvalidOperationException("HTTP OIDC is restricted to Development loopback authorities");
+            o.RequireHttpsMetadata = false;
+        }
         o.ResponseType = "code"; o.UsePkce = true; o.SaveTokens = false; o.MapInboundClaims = false; o.GetClaimsFromUserInfoEndpoint = false;
     });
 builder.Services.AddAuthorization();

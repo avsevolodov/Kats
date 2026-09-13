@@ -1,5 +1,20 @@
 # Статус реализации
 
+## WSL developer test environment
+
+Добавлен compose.infra.yaml (MSSQL Developer, Temporal dev/SQLite, Keycloak).
+test_env.py configure/up/check/down/run подготавливает отдельные settings/credentials,
+realm с двумя пользователями, schema bootstrap и app SQL login. Пароли и settings
+сохраняются при повторном configure; down не удаляет volumes. В API HTTP OIDC
+разрешён только явным opt-in в Development на loopback authority.
+
+Evidence: 18 Python tests passed, включая повторный configure с сохранением
+секретов/изменений и nondestructive down; реальная генерация тестовых файлов и
+парсинг YAML. smoke_local.py реализует browser login, Start, completion, reload,
+artifact download и cross-owner denial, но live не запускался. Docker/WSL и
+browser E2E в этой среде недоступны. Полный .NET build ранее блокировал MSBuild
+task host; этот infrastructure change не подтверждает исправление сборки.
+
 ## Native OpenCode CLI
 
 Добавлен opt-in `runner.backend=cli`: локальный executable, prompt по stdin, JSON

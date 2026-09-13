@@ -2,6 +2,11 @@
 
 ## Запуск приложения
 
+Для нового разработчика: [тестовый стенд WSL2](docs/developer-test-environment.md).
+`python3 scripts/test_env.py up` поднимает MSSQL, Temporal и Keycloak, создаёт БД
+и пользователей; далее `run api`, `run worker`, `run runner` в отдельных терминалах.
+Первый тест работает без OpenCode/LLM; затем можно включить CLI backend.
+
 Для локально установленного OpenCode без `serve` выберите в `.local/settings.json`
 `runner.backend: "cli"` и запускайте `python3 scripts/dev.py run runner`.
 Wrapper сам вызывает CLI; подробности и ограничения — в инструкции ниже.
