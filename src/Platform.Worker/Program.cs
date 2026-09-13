@@ -7,7 +7,6 @@ using Temporalio.Exceptions;
 using Temporalio.Api.Enums.V1;
 
 var builder = Host.CreateApplicationBuilder(args);
-LocalDevelopmentSettings.Load(builder.Configuration, builder.Environment.IsDevelopment(), "worker", args);
 builder.Services.AddDbContextFactory<PlatformDb>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("Platform") ?? throw new InvalidOperationException("ConnectionStrings:Platform required")));
 builder.Services.AddSingleton<SqlStore>();
 builder.Services.AddHostedService<ExecutionHost>();

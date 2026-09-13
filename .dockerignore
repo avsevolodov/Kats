@@ -8,4 +8,5 @@
 artifacts
 .venv
 .local
+**/appsettings.Development.json
 **/*.egg-info

@@ -61,3 +61,18 @@ JSON прошла. Smoke дополнен проверкой WASM loader, но l
 Worker успешно собран .NET SDK 10.0.100: 0 warnings, 0 errors.
 Полная API/WASM сборка остаётся заблокирована ошибками MSB4216/MSB4027 task host.
 Docker build и запуск Rider в этой среде не проверены.
+
+## Стандартные appsettings
+
+API/Worker используют штатную конфигурацию .NET: base JSON, JSON среды, env, CLI.
+Кастомный LocalDevelopmentSettings удалён. Rider выбирает Development; генератор
+пишет вложенный appsettings.Development.json в каждый серверный проект. Добавлены
+base/Staging/Production и Development example без секретов. Native run читает те же
+JSON, без скрытой подстановки C# настроек из Python settings. Compose/Helm сохраняют env overrides.
+
+Evidence: 19 Python tests passed; configure сгенерировал файлы с правами 0600.
+MSBuild Content metadata API и Worker подтверждает CopyToPublishDirectory=Never
+для Development и example; base/Staging/Production имеют PreserveNewest.
+Development исключён из Git и Docker context. Live API/WASM/Rider startup не проверен.
+После восстановления NuGet packages Worker собран .NET SDK 10.0.100:
+0 warnings, 0 errors. Полная API/WASM сборка остаётся отдельным открытым gate.

@@ -19,13 +19,23 @@ LOCAL = ROOT / ".local"
 COMPONENTS = ("api", "worker", "runner", "opencode")
 
 
-def export_rider(settings, profile):
-    if profile not in {"local", "test"}:
-        raise ValueError("Unknown Rider profile")
+def export_appsettings(settings):
     envs = environments(settings, "local")
     for name in ("api", "worker"):
-        values = {key.replace("__", ":"): value for key, value in envs[name].items()}
-        write_private(LOCAL / f"rider-{profile}-{name}.json", json.dumps(values, indent=2) + "\n")
+        values = {}
+        for key, value in envs[name].items():
+            if key == "ASPNETCORE_ENVIRONMENT":
+                continue
+            parts = key.split("__")
+            node = values
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node[parts[-1]] = value
+        if name == "api":
+            values["Runner"]["AllowedThumbprints"] = list(values["Runner"]["AllowedThumbprints"].values())
+            values.setdefault("Oidc", {})["AllowLoopbackHttp"] = settings["oidc"].get("allowLoopbackHttp", False)
+        project = "Platform.Api" if name == "api" else "Platform.Worker"
+        write_private(ROOT / "src" / project / "appsettings.Development.json", json.dumps(values, indent=2) + "\n")
 
 
 def write_private(path, text):
@@ -140,19 +150,19 @@ def main():
     p.add_argument("--settings", type=Path, default=LOCAL / "settings.json")
     sub = p.add_subparsers(dest="action", required=True)
     sub.add_parser("init")
-    rider = sub.add_parser("rider")
-    rider.add_argument("--profile", choices=("local", "test"), default="local")
+    sub.add_parser("appsettings", aliases=["rider"])
     render = sub.add_parser("render"); render.add_argument("mode", choices=("local", "compose"))
     run = sub.add_parser("run"); run.add_argument("component", choices=COMPONENTS)
     args = p.parse_args()
     if args.action == "init":
         init(); return
     settings = json.loads(args.settings.read_text())
-    if args.action == "rider":
-        export_rider(settings, args.profile)
-        print("Rider configuration exported to .local.")
+    if args.action in {"appsettings", "rider"}:
+        export_appsettings(settings)
+        print("Generated private appsettings.Development.json in API and Worker projects.")
         return
-    envs = environments(settings, args.mode if args.action == "render" else "local")
+    native_dotnet = args.action == "run" and args.component in {"api", "worker"}
+    envs = {} if native_dotnet else environments(settings, args.mode if args.action == "render" else "local")
     if args.action == "render":
         for name, env in envs.items():
             if any("\n" in str(v) or "\r" in str(v) for v in env.values()):
@@ -175,7 +185,10 @@ def main():
     # No shell parsing of secrets. OpenCode does not inherit platform connection strings.
     inherited = {k: v for k, v in os.environ.items() if not k.startswith(
         ("ConnectionStrings__", "Oidc__", "Runner__", "Security__", "Temporal__", "GIT_CREDENTIAL", "RUNNER_"))}
-    env = {**inherited, **envs[name]}
+    env = {**inherited, **envs.get(name, {})}
+    if name in {"api", "worker"}:
+        # Use the same standard JSON configuration as Rider, without overwriting edits.
+        env = {**os.environ, "DOTNET_ENVIRONMENT": "Development", "ASPNETCORE_ENVIRONMENT": "Development"}
     if name == "runner":
         env["PYTHONPATH"] = str(ROOT / "agents")
     os.chdir(ROOT)

@@ -1,97 +1,87 @@
 # Rider + uv: запуск разработчика
 
-Откройте `AgentPlatform.slnx` в Rider. Python-зависимости управляются **uv**:
-корневой pyproject.toml объединяет runner в workspace, uv.lock фиксирует зависимости.
-Отдельные pip install и ручное создание venv не нужны.
+Откройте `AgentPlatform.slnx` в Rider. Python runner использует uv workspace и uv.lock.
 
-## Подготовка
-
-Из корня репозитория в WSL:
+## Подготовка в WSL
 
 ```bash
 uv sync --locked
 uv run --locked scripts/test_env.py up
 ```
 
-Скрипт также создаёт `.local/rider-test-api.json` и `.local/rider-test-worker.json`.
-После изменения `.local/test-settings.json` обновите файлы:
+Команда создаёт инфраструктуру и `appsettings.Development.json` в проектах
+`src/Platform.Api` и `src/Platform.Worker`. В Rider запускайте профили **Kats API**
+и **Kats Worker**. Оба выбирают `Development`. UI отдельно запускать не нужно:
+API отдаёт Blazor WASM по https://localhost:8443/.
 
-```bash
-uv run --locked scripts/test_env.py configure
-```
-
-Для собственных внешних зависимостей и `.local/settings.json`:
+Для своих MSSQL/Temporal/OIDC:
 
 ```bash
 uv run --locked scripts/dev.py init
 # Настройте .local/settings.json
-uv run --locked scripts/dev.py rider
+uv run --locked scripts/dev.py appsettings
 ```
 
-## Запуск C# из Rider
+Можно вместо генератора скопировать `appsettings.Development.example.json` в
+`appsettings.Development.json` в каждом проекте и заполнить значения самостоятельно.
+После генерации редактируйте C# настройки непосредственно в этих файлах.
+Обычный запуск из Rider или `dev.py run` их не перезаписывает.
+Повторные `test_env.py configure`, `test_env.py up` и `dev.py appsettings`
+**перезаписывают Development-файлы** из соответствующего `.local/*settings.json`.
+Выберите, где поддерживать свои изменения, перед повторной генерацией.
+`dev.py rider` оставлен как alias команды `appsettings`.
 
-В проектах добавлены `Properties/launchSettings.json`:
+## Стандартная конфигурация .NET
 
-| Проект | Профиль тестового стенда | Профиль своих зависимостей |
-|---|---|---|
-| Platform.Api | Kats API (test) | Kats API (local) |
-| Platform.Worker | Kats Worker (test) | Kats Worker (local) |
+| Файл в каждом серверном проекте | Назначение |
+|---|---|
+| `appsettings.json` | Общие настройки и значения по умолчанию |
+| `appsettings.Development.json` | Локальные подключения и сертификаты; генерируется, исключён из Git |
+| `appsettings.Development.example.json` | Шаблон без секретов; автоматически не загружается |
+| `appsettings.Staging.json` | Переопределения для тестовой среды |
+| `appsettings.Production.json` | Переопределения для production |
 
-Rider импортирует эти launch profiles. При необходимости создайте Run Configuration
-типа **.NET Launch Settings Profile**, укажите соответствующий проект/профиль.
-Запускайте API и worker через Run или Debug; можно объединить их в Compound configuration.
-Platform.Ui отдельно запускать не нужно. API открывает https://localhost:8443/.
+Используется штатная загрузка `WebApplication.CreateBuilder` / `Host.CreateApplicationBuilder`:
+общий JSON → JSON выбранной среды → User Secrets в Development (если задан UserSecretsId)
+→ переменные окружения → аргументы командной строки. Например,
+`ConnectionStrings__Platform` переопределяет `ConnectionStrings:Platform` из JSON.
+JSON секции объединяются по ключам; файлы Staging и Production не наследуются друг от друга.
+В этой версии UserSecretsId не задан: локальные секреты хранятся в приватном Development-файле.
 
-Профили содержат только Development и имя локального профиля. Код находит корень
-checkout и загружает сгенерированный JSON из `.local`; env/command-line имеют приоритет.
-Production не разрешает KATS_LOCAL_PROFILE. Сертификаты и строки подключения в Git
-не попадают. Файлы не перечитываются на лету: после изменения конфигурации перезапустите процессы.
+Для контейнеров задавайте `DOTNET_ENVIRONMENT=Staging` или `Production`; для API
+можно также задать `ASPNETCORE_ENVIRONMENT` с тем же значением. Без выбора среды
+используется Production. В Kubernetes подключения, пароли и пути к сертификатам
+поступают через существующие Secrets/env. Общие настройки сред можно менять в JSON.
+Не сохраняйте реальные секреты в отслеживаемых файлах.
 
-Рекомендуемый вариант Windows — Rider с backend/toolchain в WSL, где выполнялась
-подготовка: сгенерированные certificate paths — абсолютные Linux paths.
-Если C# запускается Windows CLR, сгенерируйте Rider JSON на Windows с uv и доступным
-OpenSSL (либо исправьте certificate paths в локальных Rider JSON на Windows paths).
-localhost-адреса инфраструктуры сохраняются через WSL forwarding. Эти JSON не являются
-общими между Windows и Linux; запускайте генератор для выбранной ОС.
+Development-файлы исключены из Docker context и publish output. Base/Staging/Production
+доставляются с приложением. Для опубликованного приложения настройки ищутся в content root:
+запускайте его из каталога publish. Настройки API/Worker не передаются в Blazor-клиент.
+После изменения подключений или сертификатов перезапустите процесс.
 
-## Python runner
+На Windows используйте Rider с .NET toolchain/backend в том же WSL, где выполнена
+подготовка. Если используете Windows CLR, укажите доступные ему пути сертификатов
+в Development-файлах. Генерация в WSL создаёт абсолютные Linux paths.
 
-В терминале:
+## Python runner и проверки
 
 ```bash
 uv run --locked scripts/test_env.py run runner
+uv run --locked pytest tests/runner tests/dev -q
 ```
 
-Первый сценарий использует fake-runner. Для OpenCode CLI установите `runner.mode=real`,
-`runner.backend=cli` в test-settings.json и настройте provider/model/репозиторий.
-Wrapper запускается через `uv run --locked --no-dev agent-runner`.
-
-Тесты:
+Первый сценарий использует fake-runner. Для OpenCode CLI задайте `runner.mode=real`,
+`runner.backend=cli` в `.local/test-settings.json`, настройте provider/model/репозиторий.
+Python продолжает использовать настройки wrapper; appsettings относится к C# сервисам.
 
 ```bash
-uv run --locked pytest tests/runner tests/dev -q
 uv sync --locked --group browser
 uv run --locked --group browser playwright install --with-deps chromium
 uv run --locked --group browser scripts/smoke_local.py
-```
-
-## Как UI попадает в браузер
-
-Platform.Api ссылается на Platform.Ui как на Blazor WebAssembly project. Build/publish
-API собирает клиент и включает его static web assets. В Development API явно
-подключает manifest этих assets, включая запуск из Rider. `UseBlazorFrameworkFiles`,
-`UseStaticFiles` и SPA fallback обслуживают index.html, `/_framework/*`, CSS и deep links.
-Браузер скачивает runtime и сборки и выполняет UI на клиенте. REST/WebSocket используют
-тот же origin, дополнительный сервер UI/CORS не требуется.
-
-После старта API проверьте в Network браузера `/_framework/blazor.webassembly.js`
-и последующие WASM-запросы. Browser smoke проверяет loader и реальную работу UI.
-Release выполняется через publish API:
-
-```bash
 dotnet publish src/Platform.Api/Platform.Api.csproj -c Release -o artifacts/api
 ```
 
-В output должны присутствовать wwwroot/index.html и wwwroot/_framework.
-Если их нет, release gate не пройден. Полный build/serve проверяйте по актуальному
-docs/implementation-status.md; наличие профилей само по себе не подтверждает live startup.
+API ссылается на Platform.Ui и обслуживает static web assets: index.html, `/_framework/*`,
+CSS и SPA fallback. REST/WebSocket используют тот же origin. В publish должны быть
+`wwwroot/index.html` и `wwwroot/_framework`. Проверки и ограничения среды зафиксированы
+в [implementation-status.md](implementation-status.md).

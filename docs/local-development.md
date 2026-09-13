@@ -102,6 +102,11 @@ docker compose --env-file .local/compose.env down
 
 ## Native: четыре терминала
 
+Перед первым запуском C# выполните `uv run --locked scripts/dev.py appsettings`.
+API и Worker читают стандартные appsettings.json + appsettings.Development.json,
+как при запуске из Rider. Последующие run не перезаписывают JSON.
+Подробности и override-файлы: [Rider + uv](rider-uv.md).
+
 ### CLI: без отдельного OpenCode server
 
 В `.local/settings.json` задайте `runner.backend: "cli"`, `runner.cliVersion: "1.2.27"`
