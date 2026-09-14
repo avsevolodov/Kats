@@ -9,7 +9,7 @@ using Microsoft.Extensions.Configuration;
 namespace AgentPlatform;
 
 // Deliberately serialized short writes for the ten-run MVP. No network calls while holding the lock.
-public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtectionProvider protection, IConfiguration config)
+public partial class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtectionProvider protection, IConfiguration config)
 {
     public const int ConnectedFreshnessSeconds = RunnerPresence.FreshnessSeconds;
     readonly IDataProtector credentials = protection.CreateProtector("GitCredentials.v1");
@@ -121,7 +121,6 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
     }
     static async Task<RunRow> Owned(PlatformDb db, string owner, Guid id) =>
         await db.Runs.SingleOrDefaultAsync(x => x.Id == id && x.Owner == owner) ?? throw new PlatformException("NOT_FOUND", 404);
-    public const int ConnectedFreshnessSeconds = RunnerPresence.FreshnessSeconds;
     public async Task<IReadOnlyList<RepositoryView>> Repositories(bool includeDisabled = false)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -232,52 +231,7 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
         string.IsNullOrEmpty(workload) ? "" : workload.Length <= 8 ? workload : workload[^8..];
     static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
-    public Task<RepositoryView> CreateRepository(UpsertRepository request)
-    {
-        var url = Rules.ValidateRepository(request, AllowedHosts, requireCredential: request.AuthKind == "Pat");
-        var cipher = ProtectPat(request);
-        return Write(async (db, _) =>
-        {
-            var row = new RepositoryRow
-            {
-                Id = Guid.NewGuid(),
-                DisplayName = request.DisplayName.Trim(),
-                CloneUrl = url.AbsoluteUri,
-                AuthKind = request.AuthKind,
-                ProviderHint = request.ProviderHint,
-                CredentialCipher = cipher,
-                CredentialRef = "",
-                Enabled = true
-            };
-            db.Repositories.Add(row);
-            return RepoView(row);
-        });
-    }
-    public Task<RepositoryView> UpdateRepository(Guid id, UpsertRepository request)
-    {
-        var url = Rules.ValidateRepository(request, AllowedHosts, requireCredential: false);
-        var replace = request.AuthKind == "Pat" && !string.IsNullOrEmpty(request.Password);
-        var cipher = replace ? ProtectPat(request) : null;
-        return Write(async (db, _) =>
-        {
-            var row = await db.Repositories.FindAsync(id) ?? throw new PlatformException("NOT_FOUND", 404);
-            if (request.AuthKind == "Pat" && !replace)
-                Rules.Require(row.CredentialCipher is { Length: > 0 } || !string.IsNullOrEmpty(row.CredentialRef), "CREDENTIAL_REQUIRED", 400);
-            row.DisplayName = request.DisplayName.Trim();
-            row.CloneUrl = url.AbsoluteUri;
-            row.AuthKind = request.AuthKind;
-            row.ProviderHint = request.ProviderHint;
-            if (request.AuthKind == "Anonymous") { row.CredentialCipher = null; row.CredentialRef = ""; }
-            else if (replace) { row.CredentialCipher = cipher; row.CredentialRef = ""; }
-            return RepoView(row);
-        });
-    }
-    public Task DisableRepository(Guid id) => Write(async (db, _) =>
-    {
-        var row = await db.Repositories.FindAsync(id) ?? throw new PlatformException("NOT_FOUND", 404);
-        row.Enabled = false;
-        return true;
-    });
+    
     public async Task<IReadOnlyList<RunView>> List(string owner)
     {
         await using var db = await factory.CreateDbContextAsync();

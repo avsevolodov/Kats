@@ -23,6 +23,25 @@ def _diag_snip(data: bytes) -> str:
     return " ".join(text.split())
 
 
+def _cli_error_diag(event: dict) -> str:
+    """Bounded operator-facing summary of a CLI `error` event (no raw dump)."""
+    payload = event.get("error")
+    if not isinstance(payload, dict):
+        payload = {}
+    name = payload.get("name")
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    message = data.get("message") if isinstance(data, dict) else None
+    ref = data.get("ref") if isinstance(data, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        name = "error"
+    parts = [name.strip()]
+    if isinstance(message, str) and message.strip():
+        parts.append(message.strip())
+    if isinstance(ref, str) and ref.strip():
+        parts.append(f"ref={ref.strip()}")
+    return " ".join(" ".join(parts).split())[:_DIAG_SNIP]
+
+
 class OpenCodeCli:
     def __init__(self):
         self.executable = os.environ.get("OPENCODE_BIN", "opencode")
@@ -47,6 +66,14 @@ class OpenCodeCli:
     async def health(self):
         if os.name != "posix":
             raise RunnerError("CLI_REQUIRES_POSIX_OR_WSL")
+        model = os.environ.get("OPENCODE_MODEL", "").strip()
+        if not model or model.upper() == "REPLACE":
+            LOG.error("OpenCode model unset or placeholder; set runner.model in settings")
+            raise RunnerError("OPENCODE_MODEL_REQUIRED")
+        config = os.environ.get("OPENCODE_CONFIG", "").strip()
+        if config and not Path(config).is_file():
+            LOG.error("OpenCode provider config missing path=%s", config)
+            raise RunnerError("OPENCODE_CONFIG_MISSING")
         LOG.info("OpenCode CLI version check starting bin=%s timeout=%ss",
                  self.executable, VERSION_TIMEOUT_S)
         try:
@@ -89,7 +116,6 @@ class OpenCodeCli:
         if not self.version:
             LOG.error("OpenCode CLI version empty bin=%s", self.executable)
             raise RunnerError("OPENCODE_CLI_VERSION_FAILED")
-        self.version = version.decode("utf-8", errors="replace").strip()
         expected = os.environ.get("OPENCODE_CLI_VERSION", "1.2.27")
         if self.version != expected:
             LOG.error(
@@ -111,18 +137,26 @@ class OpenCodeCli:
         self.guard.begin_send()
         model = os.environ.get("OPENCODE_MODEL", "")
         provider = os.environ.get("OPENCODE_PROVIDER", "internal")
-        if not model:
+        if not model or model.strip().upper() == "REPLACE":
             raise RunnerError("OPENCODE_MODEL_REQUIRED")
         try:
             self.process = await asyncio.create_subprocess_exec(
                 self.executable, "run", "--format", "json", "--model", f"{provider}/{model}",
                 "--title", self.session, cwd=self.directory, env=self.environment(),
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL, start_new_session=True, limit=1024*1024)
+                stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=1024*1024)
         except OSError:
             raise RunnerError("OPENCODE_CLI_START_FAILED") from None
         p = self.process
         await emit(format_runner("CLI запущен"))
+        stderr_buf = bytearray()
+
+        async def drain_stderr():
+            assert p.stderr is not None
+            while chunk := await p.stderr.read(512):
+                room = _DIAG_SNIP - len(stderr_buf)
+                if room > 0:
+                    stderr_buf.extend(chunk[:room])
 
         async def collect():
             p.stdin.write(prompt.encode("utf-8"))
@@ -141,6 +175,9 @@ class OpenCodeCli:
                 kind = event.get("type")
                 part = event.get("part", {})
                 if kind == "error":
+                    LOG.error(
+                        "OpenCode CLI session error %s stderr=%r",
+                        _cli_error_diag(event), _diag_snip(bytes(stderr_buf)))
                     raise RunnerError("OPENCODE_CLI_ERROR")
                 if kind == "text":
                     text = part.get("text")
@@ -171,11 +208,15 @@ class OpenCodeCli:
                 # Reasoning and raw stderr stay off the UI stream.
             await p.wait()
             if p.returncode != 0:
+                LOG.error(
+                    "OpenCode CLI exit failed rc=%s stderr=%r",
+                    p.returncode, _diag_snip(bytes(stderr_buf)))
                 raise RunnerError("OPENCODE_CLI_EXIT_FAILED")
             if reason != "stop":
                 raise RunnerError("OPENCODE_CLI_INCOMPLETE")
             return "".join(parts)
 
+        stderr_task = asyncio.create_task(drain_stderr())
         work = asyncio.create_task(collect())
         cancelled = asyncio.create_task(abort_requested.wait())
         try:
@@ -189,8 +230,8 @@ class OpenCodeCli:
             raise RunnerError("OPENCODE_TIMEOUT") from None
         finally:
             await self.abort()
-            work.cancel(); cancelled.cancel()
-            await asyncio.gather(work, cancelled, return_exceptions=True)
+            work.cancel(); cancelled.cancel(); stderr_task.cancel()
+            await asyncio.gather(work, cancelled, stderr_task, return_exceptions=True)
 
     async def abort(self):
         p = self.process

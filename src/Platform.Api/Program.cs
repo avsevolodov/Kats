@@ -14,7 +14,6 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 var builder = WebApplication.CreateBuilder(args);
 if (builder.Environment.IsDevelopment()) builder.WebHost.UseStaticWebAssets();
-var adminRole = builder.Configuration["Security:AdminRole"] ?? "admin";
 builder.WebHost.ConfigureKestrel(k =>
 {
     k.Limits.MaxRequestBodySize = 32 * 1024;

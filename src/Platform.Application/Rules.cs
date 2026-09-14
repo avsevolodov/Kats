@@ -27,14 +27,7 @@ public static class Rules
         Require(Encoding.UTF8.GetByteCount(request.Prompt) <= 16384, "PROMPT_TOO_LARGE", 413);
         Require(ValidBaseRef(request.BaseCommit), "INVALID_COMMIT", 400);
     }
-    public static bool ValidBaseRef(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return false;
-        if (Regex.IsMatch(value, @"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z")) return true;
-        if (!Regex.IsMatch(value, @"\A[A-Za-z0-9][A-Za-z0-9._/-]{0,254}\z")) return false;
-        if (value.StartsWith('-') || value.StartsWith('/') || value.EndsWith('/') || value.EndsWith(".lock")) return false;
-        return !value.Contains("..") && !value.Contains("//") && !value.Contains("@{");
-    }
+   
     public static void Validate(UpsertRepository request, bool requireNewCredential = true)
     {
         ValidateRepository(request, null, requireNewCredential);
