@@ -17,6 +17,93 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / ".local"
 COMPONENTS = ("api", "worker", "runner", "opencode")
+PROXY_ENV = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
+             "all_proxy", "ALL_PROXY", "grpc_proxy", "GRPC_PROXY")
+
+
+def is_wsl():
+    try:
+        text = Path("/proc/version").read_text(encoding="utf-8", errors="replace").lower()
+    except OSError:
+        return False
+    return "microsoft" in text or "wsl" in text
+
+
+def default_gateway_ipv4(route_path=Path("/proc/net/route")):
+    """First IPv4 default gateway from the kernel route table (WSL NAT → Windows host)."""
+    try:
+        lines = route_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in lines[1:]:
+        fields = line.split()
+        if len(fields) < 3 or fields[1] != "00000000":
+            continue
+        try:
+            raw = int(fields[2], 16)
+        except ValueError:
+            continue
+        if raw == 0:
+            continue
+        return f"{raw & 0xFF}.{(raw >> 8) & 0xFF}.{(raw >> 16) & 0xFF}.{(raw >> 24) & 0xFF}"
+    return None
+
+
+def windows_host_ip(resolv_path=Path("/etc/resolv.conf"), route_path=Path("/proc/net/route")):
+    """Resolve Windows host address for WSL → host gRPC.
+
+    Prefer a real nameserver from resolv.conf (classic NAT, often 172.x).
+    Loopback nameserver means mirrored networking → caller uses localhost.
+    DNS stub 10.255.255.254 is not a service listener; fall back to the
+    default gateway (still typically 172.x toward the Windows host).
+    """
+    try:
+        lines = resolv_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return default_gateway_ipv4(route_path)
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 2 or parts[0] != "nameserver":
+            continue
+        host = parts[1]
+        if host in {"127.0.0.1", "::1"}:
+            return None
+        # WSL DNS stub / tunnel — not the Windows gRPC listener.
+        if host == "10.255.255.254":
+            return default_gateway_ipv4(route_path)
+        octets = host.split(".")
+        if len(octets) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in octets):
+            return host
+        return default_gateway_ipv4(route_path)
+    return default_gateway_ipv4(route_path)
+
+
+def platform_grpc_endpoint(settings, *, docker):
+    """Return (authority, ssl_name_override). ssl_name is set when the host is not a cert SAN DNS name."""
+    if docker:
+        return "api:8081", None
+    override = (settings.get("local") or {}).get("platformGrpc")
+    if override:
+        host = override.rsplit(":", 1)[0]
+        ssl = None if host in {"localhost", "127.0.0.1", "api"} else "localhost"
+        return override, ssl
+    if is_wsl():
+        host = windows_host_ip()
+        if host:
+            return f"{host}:8081", "localhost"
+    return "localhost:8081", None
+
+
+def scrub_proxy_for_local_grpc(env):
+    """Corporate HTTP_PROXY breaks gRPC to the Windows host; strip proxy and allowlist the target."""
+    for key in PROXY_ENV:
+        env.pop(key, None)
+    host = env["PLATFORM_GRPC"].rsplit(":", 1)[0]
+    existing = env.get("no_proxy") or env.get("NO_PROXY") or ""
+    entries = {item.strip() for item in existing.split(",") if item.strip()}
+    entries.update({host, "localhost", "127.0.0.1", "api", "::1"})
+    joined = ",".join(sorted(entries))
+    env["no_proxy"] = env["NO_PROXY"] = joined
 
 
 def export_appsettings(settings):
@@ -34,6 +121,8 @@ def export_appsettings(settings):
         if name == "api":
             values["Runner"]["AllowedThumbprints"] = list(values["Runner"]["AllowedThumbprints"].values())
             values.setdefault("Oidc", {})["AllowLoopbackHttp"] = settings["oidc"].get("allowLoopbackHttp", False)
+            if "Git" in values and "AllowedHosts" in values["Git"]:
+                values["Git"]["AllowedHosts"] = list(values["Git"]["AllowedHosts"].values())
         project = "Platform.Api" if name == "api" else "Platform.Worker"
         write_private(ROOT / "src" / project / "appsettings.Development.json", json.dumps(values, indent=2) + "\n")
 
@@ -106,18 +195,23 @@ def environments(settings, mode):
            "Runner__AllowedThumbprints__0": thumb,
            "Security__PublicOrigin": "https://localhost:8443",
            "Security__DataProtectionCertificate": path("certs/api/server.pfx", "/certs/api/server.pfx"),
+           "Security__AdminRole": "admin",
+           "Oidc__AdminRole": "admin",
            "Oidc__Authority": settings["oidc"]["authority"],
            "Oidc__ClientId": settings["oidc"]["clientId"],
            "Oidc__ClientSecret": settings["oidc"]["clientSecret"]}
     if settings["oidc"].get("allowLoopbackHttp", False):
         api["Oidc__AllowLoopbackHttp"] = "true"
+    for index, host in enumerate(h for h in settings["runner"].get("allowedHosts", "github.com").split(",") if h.strip()):
+        api[f"Git__AllowedHosts__{index}"] = host.strip()
     worker = {**database, "Temporal__Endpoint": settings["temporal"]["endpoint"],
               "Temporal__Namespace": settings["temporal"]["namespace"]}
     if settings["temporal"].get("mtls"):
         for key, filename in (("CertPath", "tls.crt"), ("KeyPath", "tls.key"), ("CaPath", "ca.crt")):
             worker["Temporal__" + key] = path("temporal/" + filename, "/certs/temporal/" + filename)
+    grpc_target, grpc_ssl = platform_grpc_endpoint(settings, docker=docker)
     runner = {"RUNNER_MODE": settings["runner"]["mode"],
-              "PLATFORM_GRPC": "api:8081" if docker else "localhost:8081",
+              "PLATFORM_GRPC": grpc_target,
               "RUNNER_CA": path("certs/runner/ca.crt", "/certs/runner/ca.crt"),
               "RUNNER_CERT": path("certs/runner/tls.crt", "/certs/runner/tls.crt"),
               "RUNNER_KEY": path("certs/runner/tls.key", "/certs/runner/tls.key"),
@@ -129,6 +223,8 @@ def environments(settings, mode):
               "GIT_ALLOWED_HOSTS": settings["runner"]["allowedHosts"],
               "GIT_ASKPASS": "/app/git-askpass.py" if docker else str(ROOT / "scripts/git-askpass.py"),
               "GIT_CREDENTIAL_DIR": path("git-credentials", "/git-credentials")}
+    if grpc_ssl:
+        runner["PLATFORM_GRPC_SSL_NAME"] = grpc_ssl
     code = {"OPENCODE_SERVER_PASSWORD": settings["opencodePassword"],
             "OPENCODE_CONFIG": path("provider/opencode.json", "/provider/opencode.json"),
             "XDG_DATA_HOME": path("opencode-data", "/data"),
@@ -191,6 +287,7 @@ def main():
         env = {**os.environ, "DOTNET_ENVIRONMENT": "Development", "ASPNETCORE_ENVIRONMENT": "Development"}
     if name == "runner":
         env["PYTHONPATH"] = str(ROOT / "agents")
+        scrub_proxy_for_local_grpc(env)
     os.chdir(ROOT)
     os.execvpe(commands[name][0], commands[name], env)
 

@@ -11,7 +11,7 @@
 | Keycloak, realm kats-dev | Compose | http://localhost:8180 |
 | C# API + Blazor | WSL/native | https://localhost:8443 |
 | C# Temporal worker | WSL/native | Без входящего порта |
-| Python wrapper, fake или OpenCode CLI | WSL/native | Исходящий mTLS к localhost:8081 |
+| Python wrapper, fake или OpenCode CLI | WSL/native | Исходящий mTLS к API:8081 (localhost или IP Windows-хоста из WSL) |
 
 Выделите Docker/WSL ориентировочно 4 CPU и 8 ГБ RAM, оставьте место для SQL image
 и NuGet-кэша. Нужны Git, Python 3.12 с venv, OpenSSL, .NET SDK из `global.json`,

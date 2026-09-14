@@ -1,4 +1,5 @@
 using AgentPlatform;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Temporalio.Activities;
 using Temporalio.Client;
@@ -8,6 +9,7 @@ using Temporalio.Api.Enums.V1;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddDbContextFactory<PlatformDb>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("Platform") ?? throw new InvalidOperationException("ConnectionStrings:Platform required")));
+builder.Services.AddDataProtection().SetApplicationName("AgentPlatformMvp").PersistKeysToDbContext<PlatformDb>();
 builder.Services.AddSingleton<SqlStore>();
 builder.Services.AddHostedService<ExecutionHost>();
 await builder.Build().RunAsync();

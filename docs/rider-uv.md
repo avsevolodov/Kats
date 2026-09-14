@@ -67,10 +67,14 @@ Development-файлы исключены из Docker context и publish output.
 
 ### Проверка загрузки UI
 
-API регистрирует `MapStaticAssets`: URL с fingerprint (включая Hot Reload
-`*.lib.module.js`) обслуживаются через endpoint manifest .NET 10.
-`UseStaticFiles` сам по себе не обслуживает такие псевдонимы физических файлов.
-См. [документацию Microsoft](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/static-files?view=aspnetcore-10.0).
+API регистрирует `MapStaticAssets`: fingerprinted `/_framework/` URL обслуживаются
+через endpoint manifest .NET 10. `UseStaticFiles` сам по себе не обслуживает такие
+псевдонимы. См. [документацию Microsoft](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/static-files?view=aspnetcore-10.0).
+
+В `Platform.Ui` для hosted Debug задано `WasmEnableHotReload=false`: иначе boot config
+запрашивает fingerprinted Hot Reload `*.lib.module.js` из NuGet, а API-хост с
+`ReferenceOutputAssembly=false` не отдаёт его надёжно (404 и срыв старта WASM).
+Hot Reload для Blazor WASM в этом MVP не требуется.
 
 После обновления остановите API и выполните Rebuild Solution в Rider. Если ошибка
 остаётся, удалите только `bin` и `obj` проектов Platform.Api и Platform.Ui,

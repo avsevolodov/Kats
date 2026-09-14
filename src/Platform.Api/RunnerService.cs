@@ -20,25 +20,46 @@ public sealed class RunnerService(SqlStore store, IConfiguration config) : Runne
                 if (boot == null)
                 {
                     Rules.Require(f.Hello != null && f.Hello.ProtocolVersion == 1 && Guid.TryParse(f.Hello.BootId, out _), "HELLO_REQUIRED", 400);
-                    boot = f.Hello!.BootId; reply.Hello = new() { HeartbeatSeconds = 5, LeaseSeconds = 45 };
+                    boot = f.Hello!.BootId;
+                    var version = string.Join(" / ", new[] { f.Hello.RunnerVersion, f.Hello.OpencodeVersion }.Where(x => !string.IsNullOrWhiteSpace(x)));
+                    await store.TouchRunnerSession(boot, workload, version);
+                    reply.Hello = new() { HeartbeatSeconds = 5, LeaseSeconds = 45 };
                 }
                 else
                 {
-                    var key = f.Resume?.Key ?? f.Begin?.Key ?? f.Heartbeat?.Key ?? f.Output?.Key ?? f.Complete?.Key;
+                    await store.TouchRunnerSession(boot, workload);
+                    var key = f.Resume?.Key ?? f.Begin?.Key ?? f.Heartbeat?.Key ?? f.Output?.Key ?? f.Complete?.Key
+                        ?? f.FetchGitCredential?.Key ?? f.ConfirmationRequired?.Key;
                     if (key != null) Rules.Require(key.BootId == boot, "FENCED", 403);
                     switch (f.PayloadCase)
                     {
                         case RunnerFrame.PayloadOneofCase.Claim:
                             var a = await store.Claim(workload, boot); if (a == null) reply.NoWork = new() { RetryAfterMs = 1000 }; else reply.Assignment = a; break;
-                        case RunnerFrame.PayloadOneofCase.Resume: reply.Snapshot = await store.Resume(workload, f.Resume.Key); break;
-                        case RunnerFrame.PayloadOneofCase.Begin: reply.Ack = await store.Renew(workload, f.Begin.Key, f.Begin.OpencodeSessionId); break;
+                        case RunnerFrame.PayloadOneofCase.Resume: reply.Snapshot = await store.Resume(workload, f.Resume!.Key); break;
+                        case RunnerFrame.PayloadOneofCase.Begin: reply.Ack = await store.Renew(workload, f.Begin!.Key, f.Begin.OpencodeSessionId); break;
                         case RunnerFrame.PayloadOneofCase.Heartbeat:
-                            reply.Ack = await store.Renew(workload, f.Heartbeat.Key);
+                            reply.Ack = await store.Renew(workload, f.Heartbeat!.Key);
                             var snapshot = await store.Resume(workload, f.Heartbeat.Key);
-                            if (snapshot.CancelDesired) await responses.WriteAsync(new GatewayFrame { Abort = new() { Key = f.Heartbeat.Key, Reason = "CANCEL_REQUESTED" } });
+                            if (snapshot.CancelDesired)
+                                await responses.WriteAsync(new GatewayFrame { Abort = new() { Key = f.Heartbeat.Key, Reason = "CANCEL_REQUESTED" } });
+                            else if (snapshot.ConfirmationReplyReady)
+                                await responses.WriteAsync(new GatewayFrame
+                                {
+                                    ConfirmationReply = new()
+                                    {
+                                        Key = f.Heartbeat.Key,
+                                        RequestId = snapshot.PendingConfirmationRequestId,
+                                        Decision = snapshot.ConfirmationDecision,
+                                        AnswersJson = snapshot.ConfirmationAnswersJson ?? ""
+                                    }
+                                });
                             break;
                         case RunnerFrame.PayloadOneofCase.Output:
-                        case RunnerFrame.PayloadOneofCase.Complete: reply.Ack = await store.Produce(workload, f); break;
+                        case RunnerFrame.PayloadOneofCase.Complete:
+                        case RunnerFrame.PayloadOneofCase.ConfirmationRequired:
+                            reply.Ack = await store.Produce(workload, f); break;
+                        case RunnerFrame.PayloadOneofCase.FetchGitCredential:
+                            reply.GitCredential = await store.FetchGitCredential(workload, f.FetchGitCredential!.Key); break;
                         default: throw new PlatformException("INVALID_MESSAGE", 400);
                     }
                 }

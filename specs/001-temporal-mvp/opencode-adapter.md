@@ -31,7 +31,7 @@ Idle не всегда означает success: проверить финаль
 
 MVP разрешает чтение/редактирование workspace и ограниченные команды проверки в контейнере. Tool permissions задать явно; запрещены push, PR, SSH, произвольные сетевые tools, sharing, package installs без внутреннего разрешённого фида. Репозиторий рассматривается как недоверенные данные. Не загружать repo-provided plugins/config, меняющие security policy; способ отключения подтвердить smoke-тестом pinned версии. Если надёжно отключить нельзя, MVP repo allowlist ограничивается доверенными fixture/pilot repositories, это записывается как security gate, не замалчивается.
 
-Неожиданный permission/question: abort и FAILED(PERMISSION_REQUIRED_UNSUPPORTED), без автоматического ответа «allow». HITL позже.
+Server backend: `permission.asked` / `question.asked` эскалируются в durable platform confirmation (UI once/always/reject или answer/reject). Auto-allow запрещён. Ответ владельца доставляется runner’у; runner вызывает OpenCode `POST /permission/{id}/reply` или `/question/{id}/reply|reject` (pinned 1.2.27). Timeout ответа 5 минут → reject + при необходимости FAILED(PERMISSION_TIMEOUT). Потеря SSE event channel — fail-closed (abort / UNKNOWN), не HITL. CLI backend: HITL не поддерживается; policy deny и внутренний reject ask; UI confirm требует `OPENCODE_BACKEND=server`.
 
 ## Loss semantics
 

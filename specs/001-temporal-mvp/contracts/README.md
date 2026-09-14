@@ -4,7 +4,9 @@
 
 Protocol version 1. UUID передаются canonical lowercase строкой, timestamps epoch milliseconds UTC, sequence/fence — 64-bit. JSON browser cursor/fence передаются decimal string, чтобы не зависеть от точности JavaScript number. SQL и C# используют bigint/long.
 
-Runner WorkChannel long-lived duplex: Hello первым, затем Claim/Resume, Begin, Heartbeat, Output, Complete. Workload identity из mTLS, BootId генерируется при старте Python процесса и не восстанавливается на другом процессе. Gateway не доверяет self-declared identity.
+Runner WorkChannel long-lived duplex: Hello первым, затем Claim/Resume, Begin, Heartbeat, Output, ConfirmationRequired, Complete. Workload identity из mTLS, BootId генерируется при старте Python процесса и не восстанавливается на другом процессе. Gateway не доверяет self-declared identity.
+
+ConfirmationRequired потребляет ProducerSequence и пишет durable PENDING + RunEvent. ConfirmationReply пушится на heartbeat/resume path (как AbortRequested), когда owner ответил или timeout→reject. Auto-allow запрещён.
 
 Assignment выдаётся только после committed claim. Begin переводит operation в RUNNING и разрешает prompt после AckPersisted. Начало prompt не равно записи Begin: если процесс упал между ними, всё равно UNKNOWN, не автоматический retry.
 

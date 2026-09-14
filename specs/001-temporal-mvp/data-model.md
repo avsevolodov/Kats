@@ -6,7 +6,7 @@
 
 | Таблица | Основные поля | Уникальность/индексы |
 | --- | --- | --- |
-| Repositories | RepositoryId, DisplayName, CloneUrl, AllowedRefPolicy, CredentialRef, Enabled | PK RepositoryId; URL только из admin configuration |
+| Repositories | RepositoryId, DisplayName, CloneUrl, AllowedRefPolicy, AuthKind (Anonymous\|Pat), ProviderHint, CredentialRef (legacy file alias), CredentialCipher (DP-protected PAT), Enabled | PK RepositoryId; URL/креды через authenticated UI или admin SQL; GET никогда не возвращает секрет |
 | Runs | RunId, OwnerSubject, RepositoryId, BaseCommit, Prompt, DefinitionVersion, WorkflowId, OperationId, ProjectedStatus, CancelDesired, CreatedAt, UpdatedAt, NextEventSequence, EarliestAvailableSequence, RowVersion | PK RunId; unique WorkflowId; owner/created index |
 | Commands | OwnerSubject, CommandId, Kind, RunId, RequestHash, PayloadJson, Status, AcceptedAt, DispatchLeaseUntil, DispatchAttempt, LastError | unique(OwnerSubject,CommandId); status/lease index |
 | Operations | OperationId, RunId, Kind, Status, RunnerBootId, Fence, LeaseUntil, BeginCommittedAt, OpenCodeSessionId, CancelDesired, ResultManifestId, ErrorCode, CreatedAt, UpdatedAt, RowVersion | PK OperationId; unique(RunId,Kind) MVP; status/lease index |
@@ -17,6 +17,7 @@
 | ResultManifests | ManifestId, OperationId, SummaryArtifactId, PatchArtifactId, ResultHash | PK ManifestId; unique OperationId |
 | DataProtectionKeys | Служебные EF Data Protection key records | Стандартная схема provider; encrypted key XML |
 | WorkflowPublications | RunId, PublicationKey, PayloadHash | unique(RunId,PublicationKey) |
+| OperationConfirmations | ConfirmationId, OperationId, RequestId, Kind (permission\|question), PayloadJson, Status (PENDING\|ANSWERED\|EXPIRED\|SUPERSEDED), Decision, AnswersJson, CommandId, CreatedAt, AnsweredAt | PK ConfirmationId; unique(OperationId,RequestId); at most one PENDING per OperationId |
 
 Runs.ProjectedStatus — проекция Temporal workflow. Operations.Status — authoritative состояние доставки/исполнения отдельного OpenCode operation. Поля CancelDesired фиксируют намерение, не объявляют Run CANCELLED.
 
@@ -32,6 +33,7 @@ Operation: QUEUED → LEASED → RUNNING → SUCCEEDED / FAILED / CANCELLED / UN
 - Same BootId reconnect в пределах lease сохраняет Fence и operation. Новый BootId не получает начатую operation.
 - После UNKNOWN старые результаты отвергаются как fenced; возможна ручная диагностика, автоматическое возобновление отсутствует.
 - Cancel queued operation → CANCELLED. Cancel running → intent и AbortRequested; terminal только после известного abort/result outcome.
+- Confirmation: OpenCode ask → PENDING (один на operation) → owner ANSWERED или timeout EXPIRED (reject). Cancel wins over pending confirm. Temporal не сигналит confirmation.
 
 ## Транзакции
 

@@ -20,7 +20,7 @@ C#/.NET 10, Blazor WASM, Python/OpenCode, Temporal, external MSSQL. Без Redis
 
 ## V. Минимальная поверхность
 
-Один coding Run, один OpenCode operation, summary/patch, live UI, cancel/reconnect. Без agent-to-agent, arbitrary user tool registration, push/PR, HITL и полного FastForward.
+Один coding Run, один OpenCode operation, summary/patch, live UI, cancel/reconnect. Допускается ограниченный HITL permission/question OpenCode через platform UI (без auto-allow). Без agent-to-agent, arbitrary user tool registration, push/PR, generic HITL и полного FastForward.
 
 ## VI. Проверяемость
 

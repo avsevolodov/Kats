@@ -26,8 +26,12 @@ def test_setup_preserves_secrets_and_existing_settings(tmp_path, monkeypatch):
     assert (tmp_path / "test-infra/credentials.json").read_bytes() == first
     assert json.loads((tmp_path / "test-settings.json").read_text())["runner"]["model"] == "custom-model"
     realm = json.loads((tmp_path / "test-infra/realm/kats-dev-realm.json").read_text())
-    assert {u["username"] for u in realm["users"]} == {"developer", "other"}
+    assert {u["username"] for u in realm["users"]} == {"admin", "developer", "other"}
+    assert "admin" in {r["name"] for r in realm["roles"]["realm"]}
+    assert realm["users"][0]["username"] == "admin" and "admin" in realm["users"][0]["realmRoles"]
     assert realm["clients"][0]["directAccessGrantsEnabled"] is False
+    assert realm["clients"][0]["protocolMappers"][0]["config"]["claim.name"] == "roles"
+    assert "post.logout.redirect.uris" in realm["clients"][0]["attributes"]
 
 
 def test_down_preserves_volumes(monkeypatch):

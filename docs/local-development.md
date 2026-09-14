@@ -37,13 +37,41 @@ chmod +x scripts/git-askpass.py
 | `runner.allowedHosts` | Разрешённые Git hostname через запятую |
 | `runner.provider`, `model` | ID provider/model из конфигурации OpenCode |
 | `images.opencode` | Доступный проверенный image с фиксированным tag/digest, содержащий команду `opencode` |
-| `local` | Пути к dotnet/OpenCode; Python runner запускается через uv |
+| `local` | Пути к dotnet/OpenCode; Python runner через uv. Опционально `platformGrpc` (`host:8081`) при API на Windows и runner в WSL |
 
 Зарегистрируйте OIDC redirect URI **`https://localhost:8443/signin-oidc`**.
 Отключать проверку TLS или авторизацию не требуется. UI доступен на `https://localhost:8443`,
-вход — `/login`, gRPC — `localhost:8081`. HTTPS позволяет работать secure-cookie и WebSocket.
+вход — `/login`, gRPC runner — `127.0.0.1:8081` (на той же ОС) или IP хоста Windows
+из WSL. HTTPS позволяет работать secure-cookie и WebSocket.
+
+### Runner в WSL, API на Windows
+
+В классическом WSL2 NAT `127.0.0.1` — Linux, не Windows. `dev.py run runner`
+ставит `PLATFORM_GRPC` на Windows-host (часто `172.x`): nameserver из
+`/etc/resolv.conf`, а если там DNS stub `10.255.255.254` — default gateway
+из маршрута. Плюс `PLATFORM_GRPC_SSL_NAME=localhost` (SAN dev-сертификата).
+Явный override:
+
+```json
+"local": { "platformGrpc": "172.x.x.x:8081" }
+```
+
+Проверка из WSL (NAT):
+
+```bash
+HOST=$(ip route show default | awk '{print $3; exit}')
+nc -vz "$HOST" 8081
+```
+
+Mirrored networking (nameserver `127.0.0.1`): launcher оставляет `localhost:8081`.
+API слушает `ListenAnyIP(8081)`; в NAT при необходимости откройте 8081 в
+Windows Firewall. Корпоративный `HTTP_PROXY` для runner снимается: иначе gRPC
+уходит на proxy и получает 502.
 
 Выполните `sql/001-initial.sql` в выбранной БД через SSMS/sqlcmd до запуска API/worker.
+Если БД уже была создана до полей credentials, дополнительно выполните
+`sql/002-repository-credentials.sql` (идемпотентно добавляет AuthKind/ProviderHint/CredentialCipher).
+Для списка подключённых агентов выполните `sql/003-runner-sessions.sql` (таблица RunnerSessions).
 Учётная запись приложения должна иметь права на чтение/изменение таблиц; schema setup
 выполняется отдельно пользователем с DDL правами. Скрипт создания таблиц повторяемый.
 Добавьте разрешённый репозиторий (используйте собственные URL и ID):
@@ -126,10 +154,13 @@ Wrapper сам вызывает `opencode run --format json --model provider/mod
 
 Путь provider config и XDG-каталоги такие же, как у dev OpenCode server. CLI-процесс
 не наследует параметры платформенной БД, OIDC и Git credentials wrapper.
-Разрешены read/glob/grep/edit; прочие permissions запрещены. Raw stderr, tool payloads
-и reasoning не пересылаются в UI. Preview/summary формируются из JSON text events;
-patch вычисляет существующий Workspace. Успех требует exit code 0 и финального
-`step_finish.reason=stop`. Неполный/некорректный вывод даёт UNKNOWN.
+Разрешены read/glob/grep/edit; прочие permissions запрещены. Raw stderr, полные
+tool payloads и reasoning не пересылаются в UI. В поток preview попадают
+санитизированные маркеры `[шаг]` / `[tool:name]` с коротким summary безопасных
+полей (path/pattern и т.п.) плюс текст assistant; секреты в arg-ключах скрываются.
+Summary по-прежнему собирается из JSON text events; patch вычисляет Workspace.
+Успех требует exit code 0 и финального `step_finish.reason=stop`.
+Неполный/некорректный вывод даёт UNKNOWN.
 
 BeginOperation сохраняется до запуска CLI. Поле session ID содержит `cli-<UUID>` —
 локальный execution token wrapper, не ID сессии OpenCode. CLI не запускается повторно
@@ -145,6 +176,9 @@ BeginOperation сохраняется до запуска CLI. Поле session 
 и измените `runner.cliVersion`. Реальный OpenCode/LLM smoke ещё обязателен.
 Compose продолжает использовать backend `server`: CLI-профиль предназначен для native.
 Для возврата к прежнему поведению задайте `runner.backend: "server"` (default).
+
+HITL confirmation (permission/question → UI Once/Always/Reject) работает **только** с
+`runner.backend: "server"`. CLI не отдаёт ask-события наружу и не может мостить UI.
 
 ### Server API
 

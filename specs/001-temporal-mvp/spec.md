@@ -64,7 +64,8 @@ Compose; ограничение Kubernetes PVC/hostPath сохраняется. 
 | ID | Требование |
 | --- | --- |
 | FR-001 | Основная платформа на C#/.NET 10; официальные Temporal .NET workflows/activities |
-| FR-002 | UI Blazor WASM: список, создание, detail, live output, cancel, artifacts |
+| FR-002 | UI Blazor WASM: список, создание, detail, live output, cancel, artifacts, pending OpenCode confirmation + answer |
+| FR-019 | OpenCode server: permission/question escalate to durable UI confirm; CLI remains fail-closed without HITL bridge |
 | FR-003 | Python wrapper вызывает реальный OpenCode server по localhost HTTP/SSE |
 | FR-004 | Start/Cancel имеют устойчивый CommandId, request hash и durable SQL acceptance |
 | FR-005 | Один workflow на Run, один стабильный OpenCode OperationId; dispatch через идемпотентную activity |
@@ -102,4 +103,4 @@ SC-005: `helm template` и dependency manifests не содержат запре
 
 ## За пределами MVP
 
-Дочерние агенты, HITL-вопросы OpenCode, полнофункциональный protocol v0.2, token-exact replay, model/tool-level durable interception, Redis/S3, Kerberos delegation, multi-tenant administration, multi-region DR и автоматическое восстановление Python workspace. Неожиданный запрос permission/question OpenCode прекращает operation с явной причиной; автоматическое разрешение запрещено.
+Дочерние агенты, generic HITL вне OpenCode permission/question, полнофункциональный protocol v0.2, token-exact replay, model/tool-level durable interception, Redis/S3, Kerberos delegation, multi-tenant administration, multi-region DR и автоматическое восстановление Python workspace. OpenCode permission/question на server backend эскалируются в UI; auto-allow запрещён. CLI backend без HITL-моста: deny/reject only. Потеря SSE permission channel — fail-closed.
