@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "Kats API": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "https://localhost:8443/",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

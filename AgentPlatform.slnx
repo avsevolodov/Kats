@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="src/Platform.Contracts/Platform.Contracts.csproj" />
+  <Project Path="src/Platform.Application/Platform.Application.csproj" />
+  <Project Path="src/Platform.Infrastructure/Platform.Infrastructure.csproj" />
+  <Project Path="src/Platform.Workflows/Platform.Workflows.csproj" />
+  <Project Path="src/Platform.Worker/Platform.Worker.csproj" />
+  <Project Path="src/Platform.Ui/Platform.Ui.csproj" />
+  <Project Path="src/Platform.Api/Platform.Api.csproj" />
+  <Project Path="tests/Platform.Tests/Platform.Tests.csproj" />
+</Solution>

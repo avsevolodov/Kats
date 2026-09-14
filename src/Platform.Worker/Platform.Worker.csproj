@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+<PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+<ItemGroup>
+<Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+<Content Update="appsettings.Development.example.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+<ProjectReference Include="../Platform.Infrastructure/Platform.Infrastructure.csproj" />
+<ProjectReference Include="../Platform.Workflows/Platform.Workflows.csproj" />
+<PackageReference Include="Temporalio" />
+<PackageReference Include="Microsoft.Extensions.Hosting" />
+</ItemGroup></Project>

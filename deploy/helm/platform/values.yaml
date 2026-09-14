@@ -1,0 +1,37 @@
+apiReplicas: 2
+workerReplicas: 2
+runnerReplicas: 2
+images:
+  api: registry.example.invalid/agent-platform-api:0.1.0
+  worker: registry.example.invalid/agent-platform-worker:0.1.0
+  runner: registry.example.invalid/agent-platform-runner:0.1.0
+  opencode: registry.example.invalid/opencode:approved-version
+imagePullSecrets: []
+secrets:
+  database: platform-db
+  temporal: temporal-client
+  apiTls: platform-api-tls
+  runnerTls: runner-client
+  oidc: oidc-client
+  dataProtection: platform-dataprotection
+  opencode: opencode-provider
+  repository: repository-read
+temporal:
+  endpoint: temporal.example.internal:7233
+  namespace: agent-platform
+publicOrigin: https://agents.example.internal
+oidc:
+  authority: https://identity.example.internal/realms/platform
+  clientId: agent-platform
+runnerAllowedThumbprints: []
+trustedProxies: []
+runner:
+  mode: real
+  gitAllowedHosts: git.example.internal
+  model: configured-internal-model
+  provider: internal
+ingress:
+  enabled: false
+  className: ""
+  host: agents.example.internal
+  tlsSecret: agents-ingress-tls

@@ -1,0 +1,9 @@
+{
+  "database": "Server=sql.example.internal;Database=AgentPlatform;User Id=platform;Password=REPLACE;Encrypt=True;TrustServerCertificate=False",
+  "temporal": {"endpoint": "temporal.example.internal:7233", "namespace": "default", "mtls": false},
+  "oidc": {"authority": "https://identity.example.internal/realms/platform", "clientId": "agent-platform-local", "clientSecret": "REPLACE"},
+  "runner": {"mode": "real", "backend": "server", "cliVersion": "1.2.27", "allowedHosts": "github.com", "provider": "internal", "model": "REPLACE"},
+  "images": {"opencode": "registry.example.invalid/opencode:approved-version"},
+  "local": {"dotnet": "dotnet", "opencode": "opencode", "python": ".venv/bin/python"},
+  "opencodePassword": ""
+}

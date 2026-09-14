@@ -1,0 +1,60 @@
+@page "/"
+@inject HttpClient Http
+@inject NavigationManager Nav
+<main>
+    <header><span class="brand">AGENT PLATFORM</span><a href="/login">Войти</a></header>
+    <h1>Задачи разработки</h1>
+    <p class="muted">Опишите изменение. Агент подготовит результат и patch для проверки.</p>
+    @if (error != null) { <p role="alert" class="error">@error</p> }
+    <section>
+        <h2>Новая задача</h2>
+        <label>Репозиторий<select @bind="repository"><option value="@Guid.Empty">Выберите репозиторий</option>@foreach (var repo in repositories) { <option value="@repo.RepositoryId">@repo.DisplayName</option> }</select></label>
+        <label>Commit<input @bind="commit" placeholder="Полный hash исходного commit" /></label>
+        <label>Что нужно изменить<textarea @bind="prompt" rows="5" maxlength="16384"></textarea></label>
+        <button disabled="@busy" @onclick="Start">@(pending == null ? "Запустить" : "Повторить отправку")</button>
+        @if (pending != null) { <small>Повторная отправка использует прежний идентификатор задачи.</small> }
+    </section>
+    <section><h2>История запусков</h2><button class="secondary" @onclick="Load">Обновить</button>
+    @if (runs.Count == 0) { <p class="muted">Запусков пока нет.</p> }
+    @foreach (var run in runs) { <a class="run" href="@($"/runs/{run.RunId}")"><span>@run.CreatedAt.ToLocalTime().ToString("g")</span><code>@run.BaseCommit[..Math.Min(10, run.BaseCommit.Length)]</code><strong>@run.Status</strong></a> }
+    </section>
+</main>
+@code {
+    record Repository(Guid RepositoryId, string DisplayName);
+    record Token(string RequestToken);
+    List<Repository> repositories = []; List<RunView> runs = [];
+    Guid repository; string commit = "", prompt = ""; string? error; bool busy; StartRun? pending;
+    protected override async Task OnInitializedAsync() => await Load();
+    async Task Load()
+    {
+        try
+        {
+            var repos = await Http.GetFromJsonAsync<JsonElement>("api/v1/repositories");
+            repositories = repos.GetProperty("items").Deserialize<List<Repository>>(Wire.Json) ?? [];
+            var list = await Http.GetFromJsonAsync<JsonElement>("api/v1/runs");
+            runs = list.GetProperty("items").Deserialize<List<RunView>>(Wire.Json) ?? []; error = null;
+        }
+        catch { error = "Не удалось загрузить данные. Проверьте подключение и войдите в систему."; }
+    }
+    async Task Start()
+    {
+        busy = true; error = null;
+        try
+        {
+            pending ??= new(Guid.NewGuid(), repository, commit.Trim(), prompt);
+            var t = await Http.GetFromJsonAsync<Token>("api/v1/security/antiforgery");
+            using var request = new HttpRequestMessage(HttpMethod.Post, "api/v1/runs") { Content = JsonContent.Create(pending) };
+            request.Headers.Add("X-CSRF-TOKEN", t!.RequestToken);
+            using var result = await Http.SendAsync(request);
+            if (!result.IsSuccessStatusCode)
+            {
+                error = $"Запрос отклонён ({(int)result.StatusCode}). Проверьте поля и доступ.";
+                if ((int)result.StatusCode is >= 400 and < 500) pending = null;
+                return;
+            }
+            var accepted = await result.Content.ReadFromJsonAsync<CommandAccepted>(); Nav.NavigateTo($"/runs/{accepted!.RunId}");
+        }
+        catch { error = "Ответ не получен. Повторите отправку: дубликат запуска не создастся."; }
+        finally { busy = false; }
+    }
+}

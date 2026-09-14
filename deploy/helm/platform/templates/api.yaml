@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+spec:
+  replicas: {{ .Values.apiReplicas }}
+  selector:
+    matchLabels: {app: "{{ .Release.Name }}-api"}
+  template:
+    metadata:
+      labels: {app: "{{ .Release.Name }}-api"}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 1654, runAsGroup: 1654, fsGroup: 1654, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: api
+          image: {{ .Values.images.api | quote }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: grpc, containerPort: 8081}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          env:
+            - {name: ASPNETCORE_ENVIRONMENT, value: Production}
+            - name: ConnectionStrings__Platform
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.database }}, key: connectionString}}
+            - {name: Oidc__Authority, value: {{ .Values.oidc.authority | quote }}}
+            - {name: Oidc__ClientId, value: {{ .Values.oidc.clientId | quote }}}
+            - name: Oidc__ClientSecret
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.oidc }}, key: clientSecret}}
+            - {name: Security__PublicOrigin, value: {{ .Values.publicOrigin | quote }}}
+            - {name: Security__DataProtectionCertificate, value: /certs/dp/keyring.pfx}
+            - {name: Runner__ServerCertificate, value: /certs/server/server.pfx}
+            {{- range $index, $thumb := .Values.runnerAllowedThumbprints }}
+            - {name: "Runner__AllowedThumbprints__{{ $index }}", value: {{ $thumb | quote }}}
+            {{- end }}
+            {{- range $index, $proxy := .Values.trustedProxies }}
+            - {name: "Security__TrustedProxies__{{ $index }}", value: {{ $proxy | quote }}}
+            {{- end }}
+          readinessProbe: {httpGet: {path: /health/ready, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: http}, periodSeconds: 10}
+          volumeMounts:
+            - {name: temp, mountPath: /tmp}
+            - {name: tls, mountPath: /certs/server, readOnly: true}
+            - {name: dp, mountPath: /certs/dp, readOnly: true}
+      volumes:
+        - {name: temp, emptyDir: {sizeLimit: 64Mi}}
+        - {name: tls, secret: {secretName: {{ .Values.secrets.apiTls }}}}
+        - {name: dp, secret: {secretName: {{ .Values.secrets.dataProtection }}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-api
+spec:
+  selector: {app: "{{ .Release.Name }}-api"}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+    - {name: grpc, port: 8081, targetPort: grpc}

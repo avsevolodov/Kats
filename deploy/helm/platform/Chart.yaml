@@ -1,0 +1,6 @@
+apiVersion: v2
+name: agent-platform
+description: CSharp Temporal platform with Python OpenCode runner; external storage only
+type: application
+version: 0.1.0
+appVersion: 0.1.0

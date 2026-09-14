@@ -1,0 +1,11 @@
+ARG DOTNET_SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0.100
+ARG DOTNET_RUNTIME_IMAGE=mcr.microsoft.com/dotnet/aspnet:10.0.12
+FROM ${DOTNET_SDK_IMAGE} AS build
+WORKDIR /source
+COPY . .
+RUN dotnet publish src/Platform.Api/Platform.Api.csproj -c Release -o /out
+FROM ${DOTNET_RUNTIME_IMAGE}
+WORKDIR /app
+COPY --from=build /out .
+USER 1654
+ENTRYPOINT ["dotnet", "Platform.Api.dll"]

@@ -1,0 +1,12 @@
+**/bin
+**/obj
+**/__pycache__
+.git
+.env
+*.key
+*.pfx
+artifacts
+.venv
+.local
+**/appsettings.Development.json
+**/*.egg-info

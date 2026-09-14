@@ -1,0 +1,15 @@
+[project]
+name = "kats-development"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["agent-platform-runner"]
+
+[tool.uv.workspace]
+members = ["agents"]
+
+[tool.uv.sources]
+agent-platform-runner = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest==8.4.2", "grpcio-tools==1.74.0"]
+browser = ["playwright==1.55.0"]

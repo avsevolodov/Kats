@@ -1,0 +1,98 @@
+syntax = "proto3";
+package agentplatform.runner.v1;
+option csharp_namespace = "AgentPlatform.Contracts.Runner.V1";
+
+service RunnerGateway {
+  rpc WorkChannel(stream RunnerFrame) returns (stream GatewayFrame);
+}
+
+message RunnerFrame {
+  string message_id = 1;
+  oneof payload {
+    Hello hello = 10;
+    Claim claim = 11;
+    ResumeOperation resume = 12;
+    BeginOperation begin = 13;
+    Heartbeat heartbeat = 14;
+    OutputBatch output = 15;
+    CompleteOperation complete = 16;
+  }
+}
+message GatewayFrame {
+  string correlation_message_id = 1;
+  oneof payload {
+    HelloAccepted hello = 10;
+    Assignment assignment = 11;
+    NoWork no_work = 12;
+    PersistedAck ack = 13;
+    OperationSnapshot snapshot = 14;
+    AbortRequested abort = 15;
+    ProtocolError error = 16;
+  }
+}
+message Hello {
+  uint32 protocol_version = 1;
+  string boot_id = 2;
+  string runner_version = 3;
+  string opencode_version = 4;
+}
+message HelloAccepted { int32 heartbeat_seconds = 1; int32 lease_seconds = 2; }
+message Claim {} // capacity is exactly one per BootId in MVP
+message NoWork { int32 retry_after_ms = 1; }
+message OperationKey { string operation_id = 1; string boot_id = 2; int64 fence = 3; }
+message Assignment {
+  OperationKey key = 1;
+  string run_id = 2;
+  string repository_id = 3;
+  string clone_url = 4; // allowlisted; contains no credentials
+  string base_commit = 5;
+  string prompt = 6;
+  string credential_ref = 7; // alias in mounted read-only credentials, not a secret
+  int64 lease_until_unix_ms = 8;
+  int64 deadline_unix_ms = 9;
+  string definition_version = 10;
+}
+message ResumeOperation { OperationKey key = 1; int64 last_acked_producer_sequence = 2; }
+message BeginOperation { OperationKey key = 1; string opencode_session_id = 2; }
+message Heartbeat { OperationKey key = 1; }
+message OutputBatch {
+  OperationKey key = 1;
+  int64 producer_sequence = 2;
+  string kind = 3; // preview | progress | output_truncated
+  string text = 4;
+}
+enum OperationOutcome {
+  OPERATION_OUTCOME_UNSPECIFIED = 0;
+  OPERATION_OUTCOME_SUCCEEDED = 1;
+  OPERATION_OUTCOME_FAILED = 2;
+  OPERATION_OUTCOME_CANCELLED = 3;
+  OPERATION_OUTCOME_UNKNOWN = 4;
+}
+message CompleteOperation {
+  OperationKey key = 1;
+  int64 producer_sequence = 2;
+  OperationOutcome outcome = 3;
+  string summary = 4;
+  string patch = 5;
+  string base_commit = 6;
+  string error_code = 7;
+  string safe_error_message = 8;
+  string result_sha256 = 9; // SHA-256 of length-prefixed UTF-8 summary, patch, base_commit (see README)
+}
+message PersistedAck {
+  string operation_id = 1;
+  int64 last_accepted_producer_sequence = 2;
+  int64 last_run_event_sequence = 3;
+  int64 lease_until_unix_ms = 4;
+  bool begin_authorized = 5; // meaningful only for Begin response
+}
+message OperationSnapshot {
+  OperationKey key = 1;
+  string status = 2;
+  int64 last_accepted_producer_sequence = 3;
+  int64 lease_until_unix_ms = 4;
+  bool cancel_desired = 5;
+  bool begin_committed = 6;
+}
+message AbortRequested { OperationKey key = 1; string reason = 2; }
+message ProtocolError { string code = 1; string safe_message = 2; bool retryable = 3; int64 expected_sequence = 4; }
