@@ -1,0 +1,116 @@
+@page "/agents"
+@implements IAsyncDisposable
+@inject HttpClient Http
+<main>
+    <header>
+        <span class="brand">AGENT PLATFORM</span>
+        <nav class="nav">
+            <a href="/">Задачи</a>
+            @if (signedIn) { <a href="/repositories">Репозитории</a> }
+            @if (signedIn) { <a href="/logout">Выйти</a> } else { <a href="/login">Войти</a> }
+        </nav>
+    </header>
+    <h1>Агенты</h1>
+    <p class="muted">Подключённые OpenCode runners. Online по свежести LastSeenAt; без affinity.</p>
+    @if (error != null) { <p role="alert" class="error">@error</p> }
+    @if (!signedIn)
+    {
+        <p class="muted">Войдите, чтобы продолжить.</p>
+    }
+    else if (!isAdmin)
+    {
+        <p role="alert" class="error">Недостаточно прав. Нужна роль admin.</p>
+    }
+    else
+    {
+        <section>
+            <h2>Подключённые</h2>
+            <button class="secondary" @onclick="Load" disabled="@busy">Обновить</button>
+            @if (items.Count == 0) { <p class="muted">Нет агентов online (нет свежих сессий).</p> }
+            @foreach (var agent in items)
+            {
+                <div class="run">
+                    <div>
+                        <strong>@(agent.State == "busy" ? "Занят" : "Свободен")</strong>
+                        <code>@ShortBoot(agent.BootId)</code>
+                        <small>
+                            ·@agent.WorkloadHint
+                            @if (!string.IsNullOrEmpty(agent.Version)) { <text>· @agent.Version</text> }
+                            · @agent.LastSeenAt.ToLocalTime().ToString("g")
+                            @if (agent.OperationStatus != null) { <text>· @agent.OperationStatus</text> }
+                        </small>
+                    </div>
+                    <div class="actions">
+                        @if (agent.RunId is Guid runId)
+                        {
+                            <a href="@($"/runs/{runId}")">Задача</a>
+                        }
+                    </div>
+                </div>
+            }
+        </section>
+    }
+</main>
+@code {
+    List<RunnerView> items = [];
+    string? error; bool busy, signedIn, isAdmin;
+    CancellationTokenSource? poll;
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        poll = new CancellationTokenSource();
+        _ = PollLoop(poll.Token);
+    }
+    async Task PollLoop(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(5000, ct);
+                await Load();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+    async Task Load()
+    {
+        try
+        {
+            using var meResponse = await Http.GetAsync("api/v1/security/me");
+            if (meResponse.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                signedIn = false; isAdmin = false; items = [];
+                error = "Войдите в систему.";
+                return;
+            }
+            meResponse.EnsureSuccessStatusCode();
+            signedIn = true;
+            var me = await meResponse.Content.ReadFromJsonAsync<SecurityMe>(Wire.Json);
+            isAdmin = me?.IsAdmin == true;
+            if (!isAdmin) { error = null; items = []; return; }
+            busy = true;
+            using var listResponse = await Http.GetAsync("api/v1/runners");
+            if (listResponse.StatusCode == HttpStatusCode.Forbidden) { error = "Недостаточно прав."; isAdmin = false; items = []; return; }
+            listResponse.EnsureSuccessStatusCode();
+            await using var stream = await listResponse.Content.ReadAsStreamAsync();
+            var list = await JsonSerializer.DeserializeAsync<JsonElement>(stream, Wire.Json);
+            items = list.GetProperty("items").Deserialize<List<RunnerView>>(Wire.Json) ?? [];
+            error = null;
+        }
+        catch { error = "Не удалось загрузить агентов."; }
+        finally { busy = false; }
+    }
+    static string ShortBoot(Guid bootId)
+    {
+        var s = bootId.ToString("D");
+        return s.Length <= 8 ? s : s[..8];
+    }
+    public ValueTask DisposeAsync()
+    {
+        poll?.Cancel();
+        poll?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}
