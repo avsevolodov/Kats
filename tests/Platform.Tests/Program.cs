@@ -25,6 +25,8 @@ var runnerView = new RunnerView(Guid.Parse("11111111-1111-1111-1111-111111111111
 var runnerJson = Wire.Serialize(runnerView);
 Check(runnerJson.Contains("\"state\":\"idle\"", StringComparison.Ordinal) && runnerJson.Contains("EF01", StringComparison.Ordinal), "runner view idle hint");
 Check(!runnerJson.Contains(thumbprint, StringComparison.Ordinal), "runner view omits full workload identity");
+var busyView = Wire.Serialize(runnerView with { State = "busy", RunId = Guid.Parse("22222222-2222-2222-2222-222222222222"), OperationId = Guid.Parse("33333333-3333-3333-3333-333333333333"), OperationStatus = "RUNNING" });
+Check(busyView.Contains("\"state\":\"busy\"", StringComparison.Ordinal) && busyView.Contains("RUNNING", StringComparison.Ordinal), "runner view busy join fields");
 Check(RunnerPresence.FreshnessSeconds == 15, "connected freshness window");
 var assignment = new Assignment { AuthKind = "Pat", CloneUrl = "https://github.com/org/repo.git" };
 Check(assignment.AuthKind == "Pat", "assignment auth kind");

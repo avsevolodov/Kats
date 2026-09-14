@@ -126,3 +126,6 @@ message ConfirmationReply {
   string decision = 3; // once|always|reject|answer
   string answers_json = 4; // JSON string[][] when decision=answer
 }
+
+message PermissionExchange { OperationKey key = 1; string session_id = 2; string request_id = 3; string description = 4; string phase = 5; }
+message PermissionResult { string decision = 1; string status = 2; }

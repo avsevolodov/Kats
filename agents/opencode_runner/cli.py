@@ -89,6 +89,7 @@ class OpenCodeCli:
         if not self.version:
             LOG.error("OpenCode CLI version empty bin=%s", self.executable)
             raise RunnerError("OPENCODE_CLI_VERSION_FAILED")
+        self.version = version.decode("utf-8", errors="replace").strip()
         expected = os.environ.get("OPENCODE_CLI_VERSION", "1.2.27")
         if self.version != expected:
             LOG.error(

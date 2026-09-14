@@ -113,6 +113,7 @@ public sealed class OperationConfirmationRow
 }
 public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext(options), IDataProtectionKeyContext
 {
+    public DbSet<PermissionRow> Permissions => Set<PermissionRow>();
     public DbSet<RepositoryRow> Repositories => Set<RepositoryRow>();
     public DbSet<RunRow> Runs => Set<RunRow>();
     public DbSet<CommandRow> Commands => Set<CommandRow>();
@@ -126,6 +127,9 @@ public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; } = null!;
     protected override void OnModelCreating(ModelBuilder b)
     {
+        b.Entity<PermissionRow>().HasKey(x => new { x.OperationId, x.RequestId });
+        b.Entity<PermissionRow>().Property(x => x.RequestId).HasMaxLength(100).UseCollation("Latin1_General_100_BIN2");
+        b.Entity<PermissionRow>().HasOne<OperationRow>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<RepositoryRow>().HasKey(x => x.Id);
         b.Entity<RepositoryRow>().Property(x => x.AuthKind).HasMaxLength(32);
         b.Entity<RepositoryRow>().Property(x => x.ProviderHint).HasMaxLength(32);

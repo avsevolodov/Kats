@@ -25,6 +25,7 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
             return hosts.Length > 0 ? hosts : ["github.com"];
         }
     }
+
     public async Task<T> Write<T>(Func<PlatformDb, DateTime, Task<T>> action)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -120,6 +121,7 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
     }
     static async Task<RunRow> Owned(PlatformDb db, string owner, Guid id) =>
         await db.Runs.SingleOrDefaultAsync(x => x.Id == id && x.Owner == owner) ?? throw new PlatformException("NOT_FOUND", 404);
+    public const int ConnectedFreshnessSeconds = RunnerPresence.FreshnessSeconds;
     public async Task<IReadOnlyList<RepositoryView>> Repositories(bool includeDisabled = false)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -230,6 +232,52 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
         string.IsNullOrEmpty(workload) ? "" : workload.Length <= 8 ? workload : workload[^8..];
     static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];
+    public Task<RepositoryView> CreateRepository(UpsertRepository request)
+    {
+        var url = Rules.ValidateRepository(request, AllowedHosts, requireCredential: request.AuthKind == "Pat");
+        var cipher = ProtectPat(request);
+        return Write(async (db, _) =>
+        {
+            var row = new RepositoryRow
+            {
+                Id = Guid.NewGuid(),
+                DisplayName = request.DisplayName.Trim(),
+                CloneUrl = url.AbsoluteUri,
+                AuthKind = request.AuthKind,
+                ProviderHint = request.ProviderHint,
+                CredentialCipher = cipher,
+                CredentialRef = "",
+                Enabled = true
+            };
+            db.Repositories.Add(row);
+            return RepoView(row);
+        });
+    }
+    public Task<RepositoryView> UpdateRepository(Guid id, UpsertRepository request)
+    {
+        var url = Rules.ValidateRepository(request, AllowedHosts, requireCredential: false);
+        var replace = request.AuthKind == "Pat" && !string.IsNullOrEmpty(request.Password);
+        var cipher = replace ? ProtectPat(request) : null;
+        return Write(async (db, _) =>
+        {
+            var row = await db.Repositories.FindAsync(id) ?? throw new PlatformException("NOT_FOUND", 404);
+            if (request.AuthKind == "Pat" && !replace)
+                Rules.Require(row.CredentialCipher is { Length: > 0 } || !string.IsNullOrEmpty(row.CredentialRef), "CREDENTIAL_REQUIRED", 400);
+            row.DisplayName = request.DisplayName.Trim();
+            row.CloneUrl = url.AbsoluteUri;
+            row.AuthKind = request.AuthKind;
+            row.ProviderHint = request.ProviderHint;
+            if (request.AuthKind == "Anonymous") { row.CredentialCipher = null; row.CredentialRef = ""; }
+            else if (replace) { row.CredentialCipher = cipher; row.CredentialRef = ""; }
+            return RepoView(row);
+        });
+    }
+    public Task DisableRepository(Guid id) => Write(async (db, _) =>
+    {
+        var row = await db.Repositories.FindAsync(id) ?? throw new PlatformException("NOT_FOUND", 404);
+        row.Enabled = false;
+        return true;
+    });
     public async Task<IReadOnlyList<RunView>> List(string owner)
     {
         await using var db = await factory.CreateDbContextAsync();
@@ -252,6 +300,8 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
         var r = await Owned(db, owner, id);
         Rules.Require(after >= r.EarliestSequence - 1, "CURSOR_EXPIRED", 410);
         Rules.Require(after >= 0, "INVALID_CURSOR", 400);
+        // Cursor past high watermark means "caught up" — empty page, not an error
+        // (avoids killing the browser stream on a benign race).
         if (after >= r.NextSequence)
             return new([], (r.NextSequence - 1).ToString(), r.EarliestSequence.ToString(), false);
         var rows = await db.Events.AsNoTracking().Where(x => x.RunId == id && x.Sequence > after).OrderBy(x => x.Sequence).Take(Math.Clamp(limit, 1, 100)).ToListAsync();
@@ -320,6 +370,7 @@ public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtect
     public Task<Assignment?> Claim(string workload, string boot) => Write(async (db, now) =>
     {
         var old = await db.Operations.FirstOrDefaultAsync(x => x.BootId == boot && x.Workload == workload && (x.Status == "LEASED" || x.Status == "RUNNING"));
+        // Lost Assignment is recovered by the same process, not by a new BootId.
         var op = old ?? await db.Operations.FirstOrDefaultAsync(x => x.Status == "QUEUED" && !x.CancelDesired);
         if (op == null) return null;
         var r = await db.Runs.SingleAsync(x => x.Id == op.RunId);

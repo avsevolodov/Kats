@@ -50,6 +50,7 @@ class Transport:
         return options
 
     async def run(self):
+        ssl_name = os.environ.get("PLATFORM_GRPC_SSL_NAME", "localhost")
         while not self.closing:
             ssl_name = os.environ.get("PLATFORM_GRPC_SSL_NAME") or "-"
             LOG.info("gateway dial target=%s ssl_name=%s", self.target, ssl_name)

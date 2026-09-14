@@ -11,6 +11,15 @@ public static class Rules
 {
     public static void Require(bool condition, string code, int status = 409)
     { if (!condition) throw new PlatformException(code, status); }
+    public static bool ValidBaseRef(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 255) return false;
+        if (Regex.IsMatch(value, @"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z")) return true;
+        if (value.StartsWith('-') || value.StartsWith('/') || value.EndsWith('/') || value.EndsWith(".lock", StringComparison.Ordinal)
+            || value.Contains("..", StringComparison.Ordinal) || value.Contains("//", StringComparison.Ordinal)
+            || value.Contains("@{", StringComparison.Ordinal)) return false;
+        return Regex.IsMatch(value, @"\A[A-Za-z0-9][A-Za-z0-9._/-]*\z");
+    }
     public static void Validate(StartRun request)
     {
         Require(request.CommandId != Guid.Empty && request.RepositoryId != Guid.Empty, "INVALID_ID", 400);

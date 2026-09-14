@@ -4,6 +4,7 @@
 
 - [x] DEV005 Генератор тестового realm, отдельных credentials/settings и bootstrap SQL; тесты идемпотентности и сохранения данных.
 - [ ] DEV006 WSL Compose up и smoke_local.py на реальном стенде (MSSQL/Temporal/OIDC + fake runner); автоматизация готова, live gate открыт.
+- [x] DEV008 Admin UI/API подключённых runners: RunnerSessions upsert на Hello/frame, GET `/api/v1/runners`, страница `/agents`; presence по LastSeenAt, без affinity.
 
 - [ ] DEV004 Native CLI adapter: stdin/JSON, exit/timeout/cancel, защита от повтора; live OpenCode smoke после subprocess fixtures.
 

@@ -85,6 +85,7 @@ VALUES (NEWID(), N'Sample', N'https://github.com/your-account/sample.git', N'', 
 содержимое файла: JSON с `username` и `password` (read-only token), права `600`.
 В UI укажите полный commit SHA доступного репозитория. Runner отклоняет репозитории
 с `.opencode`, `opencode.json`, `opencode.jsonc`, symlinks, submodules и LFS по правилам MVP.
+Host clone URL должен входить в `Git:AllowedHosts` / `runner.allowedHosts` (например `github.com`).
 
 Положите проверенный provider configuration в `.local/provider/opencode.json`.
 Используйте те же provider/model и ограничения инструментов, что в Kubernetes Secret

@@ -81,6 +81,29 @@
 @code {
     [Parameter] public Guid Id { get; set; }
     RunView? run;
+    List<PermissionView> permissions = [];
+    bool permissionBusy;
+    static string PermissionStatus(string status) => status switch {
+        "pending" => "Ожидает вашего решения", "decided" => "Решение сохранено, ожидает доставки",
+        "applied" => "Ответ передан OpenCode", "unknown" => "Доставка не подтверждена",
+        "expired" => "Запрос больше не активен", _ => status };
+    async Task Decide(string requestId, string decision)
+    {
+        permissionBusy = true;
+        try
+        {
+            var token = await Http.GetFromJsonAsync<JsonElement>("api/v1/security/antiforgery", stop.Token);
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/v1/runs/{Id}/permissions/{Uri.EscapeDataString(requestId)}/decision") {
+                Content = JsonContent.Create(new PermissionDecision(decision)) };
+            request.Headers.Add("X-CSRF-TOKEN", token.GetProperty("requestToken").GetString());
+            using var response = await Http.SendAsync(request, stop.Token);
+            if (!response.IsSuccessStatusCode) error = "Решение не принято. Запрос мог завершиться или уже получить другой ответ.";
+            await Refresh();
+        }
+        catch { error = "Не удалось подтвердить сохранение решения. Обновите состояние перед повтором."; }
+        finally { permissionBusy = false; }
+    }
+
     string connection = "Подключение…";
     string? error;
     long cursor;
@@ -120,6 +143,7 @@
             signedIn = true;
             await using var body = await response.Content.ReadAsStreamAsync(stop.Token);
             run = await JsonSerializer.DeserializeAsync<RunView>(body, Wire.Json, stop.Token);
+            permissions = await Http.GetFromJsonAsync<List<PermissionView>>($"api/v1/runs/{Id}/permissions", stop.Token) ?? [];
         }
         catch { error = "Не удалось получить состояние задачи. Войдите в систему или повторите позже."; }
     }
@@ -193,6 +217,7 @@
 
     async Task PollEvents()
     {
+        // REST is a parallel delivery path (not only fallback). Dedup is by cursor.
         while (!stop.IsCancellationRequested)
         {
             try
@@ -407,6 +432,8 @@
                     entries.Add(new TimelineEntry(EntryKind.Notice, "Получен пустой фрагмент лога агента.", "", ""));
                     return;
                 }
+                var text = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
+                if (text.Length == 0) return;
                 AppendAgent(text);
                 break;
         }

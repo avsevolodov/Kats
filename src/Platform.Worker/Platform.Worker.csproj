@@ -7,4 +7,5 @@
 <ProjectReference Include="../Platform.Workflows/Platform.Workflows.csproj" />
 <PackageReference Include="Temporalio" />
 <PackageReference Include="Microsoft.Extensions.Hosting" />
+<PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
 </ItemGroup></Project>

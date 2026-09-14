@@ -178,6 +178,29 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/runners:
+    get:
+      operationId: ListConnectedRunners
+      description: Admin only. Connected OpenCode runners by RunnerSessions freshness; not an affinity map.
+      responses:
+        '200':
+          description: Fresh runner sessions (LastSeenAt within freshness window)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Runners'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Admin role required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/security/me:
     get:
       operationId: GetSecurityMe
@@ -648,6 +671,7 @@ components:
         username:
           type: string
           maxLength: 200
+          description: Required with password when authKind is Pat on create or credential replace
         password:
           type: string
           maxLength: 4000
@@ -679,6 +703,53 @@ components:
       required:
       - subject
       - isAdmin
+    Runner:
+      type: object
+      properties:
+        bootId:
+          type: string
+          format: uuid
+        workloadHint:
+          type: string
+          description: Short non-secret hint derived from workload identity
+        version:
+          type: string
+        lastSeenAt:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum:
+          - idle
+          - busy
+        runId:
+          type: string
+          format: uuid
+          nullable: true
+        operationId:
+          type: string
+          format: uuid
+          nullable: true
+        operationStatus:
+          type: string
+          nullable: true
+      additionalProperties: false
+      required:
+      - bootId
+      - workloadHint
+      - version
+      - lastSeenAt
+      - state
+    Runners:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Runner'
+      additionalProperties: false
+      required:
+      - items
     StartRun:
       type: object
       properties:

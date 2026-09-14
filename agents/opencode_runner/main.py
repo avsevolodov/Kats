@@ -11,6 +11,11 @@ from .transport import Transport
 from .workspace import Workspace
 from .opencode import OpenCode
 from .cli import OpenCodeCli
+from .local_server import LocalOpenCode
+
+
+def status(message: str) -> None:
+    print(f"runner: {message}", file=sys.stderr, flush=True)
 
 
 async def process(t, assignment, code, workspace):
@@ -23,6 +28,7 @@ async def process(t, assignment, code, workspace):
     last_output = 0.0
     outcome = pb.OPERATION_OUTCOME_FAILED
     summary = patch = error = ""
+    status(f"claimed run={assignment.run_id} operation={key.operation_id} fence={key.fence}")
 
     async def heartbeat():
         nonlocal safe_until
@@ -143,6 +149,7 @@ async def run():
     if code and backend == "cli":
         LOG.info("OpenCode CLI health check")
         await code.health()
+        status(f"OpenCode CLI ready version={code.version}")
     elif code:
         # Startup readiness only: never retry submitting an operation/prompt here.
         LOG.info("OpenCode server health wait timeout=60s")
@@ -157,6 +164,9 @@ async def run():
         except TimeoutError:
             await code.close()
             raise RunnerError("OPENCODE_STARTUP_TIMEOUT") from None
+        except BaseException:
+            await code.close()
+            raise
         # Fail closed on leftover sessions after Python restart: pod recreation required.
         response = await code.http.get("/session", params={"directory": code.directory})
         response.raise_for_status()
@@ -187,6 +197,7 @@ async def run():
             if code and code.session:
                 await code.cleanup()
     finally:
+        status("shutting down")
         await t.close(); connection.cancel()
         try: await connection
         except asyncio.CancelledError: pass

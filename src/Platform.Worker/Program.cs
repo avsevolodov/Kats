@@ -34,8 +34,12 @@ sealed class ExecutionHost(SqlStore store, IConfiguration config, ILogger<Execut
         using var worker = new TemporalWorker(client, new TemporalWorkerOptions(queue).AddWorkflow<RunWorkflow>().AddAllActivities(new Activities(store)));
         await Task.WhenAll(worker.ExecuteAsync(stoppingToken), Dispatch(client, queue, stoppingToken), Reap(stoppingToken));
     }
+
     async Task Dispatch(ITemporalClient client, string queue, CancellationToken ct)
     {
+        log.LogInformation("Command dispatcher started");
+        var idleSince = DateTime.UtcNow;
+        var lastIdleLog = DateTime.MinValue;
         while (!ct.IsCancellationRequested)
         {
             try
@@ -44,6 +48,7 @@ sealed class ExecutionHost(SqlStore store, IConfiguration config, ILogger<Execut
                 if (c == null) { await Task.Delay(500, ct); continue; }
                 var input = await store.Input(c.RunId);
                 var id = $"run-{c.RunId:D}";
+                log.LogInformation("Claimed command kind={Kind} command={CommandId} run={RunId} workflow={WorkflowId}", c.Kind, c.Id, c.RunId, id);
                 if (c.Kind == "START")
                 {
                     try { await client.StartWorkflowAsync((RunWorkflow w) => w.RunAsync(input), new(id, queue) { IdReusePolicy = WorkflowIdReusePolicy.RejectDuplicate }); }
@@ -55,18 +60,23 @@ sealed class ExecutionHost(SqlStore store, IConfiguration config, ILogger<Execut
                     if (!States.Terminal(view.Status)) await client.GetWorkflowHandle<RunWorkflow>(id).SignalAsync(w => w.RequestCancel(c.Id));
                 }
                 await store.Dispatched(c);
+                log.LogInformation("Command marked DISPATCHED kind={Kind} command={CommandId}", c.Kind, c.Id);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception e) { log.LogWarning("Dispatcher unavailable: {ErrorType}", e.GetType().Name); await Task.Delay(1000, ct); }
         }
+        log.LogInformation("Command dispatcher stopped");
     }
+
     async Task Reap(CancellationToken ct)
     {
+        log.LogInformation("Lease reaper started");
         while (!ct.IsCancellationRequested)
         {
             try { await store.Reap(); }
             catch (Exception e) { log.LogWarning("Lease reaper unavailable: {ErrorType}", e.GetType().Name); }
             await Task.Delay(5000, ct);
         }
+        log.LogInformation("Lease reaper stopped");
     }
 }

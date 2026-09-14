@@ -120,6 +120,9 @@ def export_appsettings(settings):
             node[parts[-1]] = value
         if name == "api":
             values["Runner"]["AllowedThumbprints"] = list(values["Runner"]["AllowedThumbprints"].values())
+            hosts = values.get("Git", {}).get("AllowedHosts")
+            if isinstance(hosts, dict):
+                values.setdefault("Git", {})["AllowedHosts"] = [hosts[k] for k in sorted(hosts, key=lambda x: int(x))]
             values.setdefault("Oidc", {})["AllowLoopbackHttp"] = settings["oidc"].get("allowLoopbackHttp", False)
             if "Git" in values and "AllowedHosts" in values["Git"]:
                 values["Git"]["AllowedHosts"] = list(values["Git"]["AllowedHosts"].values())
@@ -182,6 +185,58 @@ def init():
     print("Created .local/settings.json and 30-day development certificates.")
 
 
+def wsl_windows_host():
+    """Best-effort Windows host IP as seen from WSL2 (not 127.0.0.1, not DNS proxy)."""
+    try:
+        version = Path("/proc/version").read_text(encoding="utf-8", errors="ignore").lower()
+    except OSError:
+        return None
+    if "microsoft" not in version and "wsl" not in version:
+        return None
+
+    def usable(ip: str) -> bool:
+        # 10.255.255.254 is a WSL DNS tunnel/proxy, not an app gateway.
+        return bool(ip) and ip not in {"127.0.0.1", "::1", "10.255.255.254"}
+
+    try:
+        route = subprocess.run(
+            ["ip", "-4", "route", "show", "default"],
+            check=False, capture_output=True, text=True, timeout=2)
+        parts = route.stdout.split()
+        if "via" in parts:
+            via = parts[parts.index("via") + 1]
+            if usable(via):
+                return via
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        pass
+    try:
+        for line in Path("/etc/resolv.conf").read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("nameserver"):
+                candidate = line.split()[1] if len(line.split()) >= 2 else ""
+                if usable(candidate):
+                    return candidate
+    except OSError:
+        return None
+    return None
+
+
+def platform_grpc(settings, docker):
+    """Resolve runner→API gRPC target.
+
+    Compose: service DNS. Native WSL→Windows API: default gateway IP (refreshed each run).
+    Optional local.platformGrpc override, or \"auto\" to force detection.
+    """
+    if docker:
+        return "api:8081"
+    override = str((settings.get("local") or {}).get("platformGrpc") or "").strip()
+    if override and override.lower() != "auto":
+        return override
+    host = wsl_windows_host()
+    if host:
+        return f"{host}:8081"
+    return "127.0.0.1:8081"
+
+
 def environments(settings, mode):
     docker = mode == "compose"
     def path(native, container):
@@ -200,6 +255,8 @@ def environments(settings, mode):
            "Oidc__Authority": settings["oidc"]["authority"],
            "Oidc__ClientId": settings["oidc"]["clientId"],
            "Oidc__ClientSecret": settings["oidc"]["clientSecret"]}
+    for index, host in enumerate(h.strip() for h in settings["runner"]["allowedHosts"].split(",") if h.strip()):
+        api[f"Git__AllowedHosts__{index}"] = host
     if settings["oidc"].get("allowLoopbackHttp", False):
         api["Oidc__AllowLoopbackHttp"] = "true"
     for index, host in enumerate(h for h in settings["runner"].get("allowedHosts", "github.com").split(",") if h.strip()):
@@ -231,10 +288,8 @@ def environments(settings, mode):
             "XDG_CONFIG_HOME": path("opencode-config", "/config"),
             "XDG_CACHE_HOME": path("opencode-cache", "/cache")}
     backend = settings["runner"].get("backend", "server")
-    if docker and backend == "cli":
         raise ValueError("CLI backend uses native installed OpenCode; choose local launch")
     runner["OPENCODE_BACKEND"] = backend
-    if backend == "cli":
         runner.update(code)
         runner["OPENCODE_BIN"] = settings["local"]["opencode"]
         runner["OPENCODE_CLI_VERSION"] = settings["runner"].get("cliVersion", "1.2.27")

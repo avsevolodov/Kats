@@ -53,6 +53,7 @@ var protection = builder.Services.AddDataProtection().SetApplicationName("AgentP
 var keyPath = builder.Configuration["Security:DataProtectionCertificate"];
 if (!string.IsNullOrEmpty(keyPath)) protection.ProtectKeysWithCertificate(X509CertificateLoader.LoadPkcs12FromFile(keyPath, builder.Configuration["Security:DataProtectionPassword"]));
 else if (!builder.Environment.IsDevelopment()) throw new InvalidOperationException("Data Protection encryption certificate required");
+var adminRole = builder.Configuration["Security:AdminRole"] ?? "admin";
 builder.Services.AddAuthentication(o => { o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme; o.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme; })
     .AddCookie(o =>
     {
@@ -109,6 +110,16 @@ app.MapGet("/logout", async (HttpContext c) =>
     var redirect = new AuthenticationProperties { RedirectUri = "/" };
     await c.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme, redirect);
     await c.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme, redirect);
+});
+// Path match only (any method): HTTP/2 WebSocket is CONNECT; MapGet → 405.
+app.Map("/api/v1/stream", async (HttpContext context, SqlStore store, IConfiguration config) =>
+{
+    if (context.User.Identity?.IsAuthenticated != true)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return;
+    }
+    await BrowserStream.Handle(context, store, config);
 });
 static string Owner(HttpContext c) => c.User.FindFirstValue("sub") ?? throw new PlatformException("UNAUTHENTICATED", 401);
 static bool IsAdmin(HttpContext c, string role) => c.User.IsInRole(role);

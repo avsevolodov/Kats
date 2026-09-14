@@ -18,6 +18,7 @@ message RunnerFrame {
     CompleteOperation complete = 16;
     FetchGitCredential fetch_git_credential = 17;
     ConfirmationRequired confirmation_required = 18;
+    PermissionExchange permission = 18;
   }
 }
 message GatewayFrame {
@@ -32,6 +33,7 @@ message GatewayFrame {
     ProtocolError error = 16;
     GitCredential git_credential = 17;
     ConfirmationReply confirmation_reply = 18;
+    PermissionResult permission = 18;
   }
 }
 message Hello {
@@ -126,3 +128,6 @@ message ConfirmationReply {
   string decision = 3; // once|always|reject|answer
   string answers_json = 4; // JSON string[][] when decision=answer
 }
+
+message PermissionExchange { OperationKey key = 1; string session_id = 2; string request_id = 3; string description = 4; string phase = 5; }
+message PermissionResult { string decision = 1; string status = 2; }

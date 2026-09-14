@@ -1,5 +1,27 @@
 # Статус реализации
 
+## UI permissions (2026-09-14)
+
+Реализовано: durable PermissionRow + SQL 004, gRPC PermissionExchange/Result,
+owner-only GET/POST с CSRF, карточки once/reject в UI, аудит решений, проверки
+SessionId/BootId/Fence/lease/deadline/cancel. Поллинг OpenCode pending permissions
+не зависит от доставки SSE. Неизвестный ответ permission reply не повторяется.
+Новый backend local управляет установленным opencode serve на приватном loopback
+с одноразовым паролем и cleanup процесса. Старый cli сохранён.
+
+Проверено: uv sync --locked; 25 Python tests passed, включая HTTP permission
+контракт, session isolation, ожидание/отмену/исчезновение запроса, потерю ACK без
+повтора POST, запуск/остановку локального fixture server и фильтрацию env секретов.
+Contracts/Infrastructure собраны без ошибок; Compile target UI прошёл. Полная
+API/WASM сборка во время реализации упиралась в MSB4216/MSB4027 task host.
+Полный SQL + real OpenCode + Rider/browser acceptance пока не выполнен.
+
+В upstream main были ссылки на отсутствующие presentation.py и SQL 002/003;
+файлы восстановлены, существующие runner/dev tests проходят.
+Инструкция миграции и ограничения: [permissions.md](permissions.md).
+Ожидание входит в прежний 20-минутный deadline; question, always и recovery
+процесса OpenCode не входят в этап. Mock-тесты не доказывают live SQL гарантии.
+
 ## WSL developer test environment
 
 Добавлен compose.infra.yaml (MSSQL Developer, Temporal dev/SQLite, Keycloak).
