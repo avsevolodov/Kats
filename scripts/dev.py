@@ -195,10 +195,10 @@ def environments(settings, mode):
             "XDG_CONFIG_HOME": path("opencode-config", "/config"),
             "XDG_CACHE_HOME": path("opencode-cache", "/cache")}
     backend = settings["runner"].get("backend", "server")
-    if docker and backend == "cli":
+    if docker and backend in {"cli", "local"}:
         raise ValueError("CLI backend uses native installed OpenCode; choose local launch")
     runner["OPENCODE_BACKEND"] = backend
-    if backend == "cli":
+    if backend in {"cli", "local"}:
         runner.update(code)
         runner["OPENCODE_BIN"] = settings["local"]["opencode"]
         runner["OPENCODE_CLI_VERSION"] = settings["runner"].get("cliVersion", "1.2.27")

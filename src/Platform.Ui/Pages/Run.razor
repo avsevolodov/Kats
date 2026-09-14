@@ -19,6 +19,26 @@
     @if (run.ErrorCode != null) { <p role="alert">@run.ErrorCode</p> }
     @if (run.Artifacts.Count > 0) { <section><h2>Результаты</h2>@foreach (var a in run.Artifacts) { <p><a href="@a.DownloadUrl" download>@(a.Kind == "patch" ? "Скачать patch" : "Скачать описание результата")</a> · @a.SizeBytes байт</p> }</section> }
 }
+@if (permissions.Count > 0)
+{
+    <section>
+        <h2>Разрешения OpenCode</h2>
+        <p class="muted">Разрешение относится только к указанному запросу. Ожидание входит в срок выполнения задачи.</p>
+        @foreach (var permission in permissions)
+        {
+            <article @key="permission.RequestId">
+                <pre>@permission.Description</pre>
+                <p>Статус: @PermissionStatus(permission.Status)</p>
+                @if (permission.Decision != "") { <p>Решение: @(permission.Decision == "once" ? "Разрешить один раз" : "Отклонить")</p> }
+                @if (permission.Status == "pending")
+                {
+                    <button disabled="@permissionBusy" @onclick='() => Decide(permission.RequestId, "once")'>Разрешить один раз</button>
+                    <button class="secondary" disabled="@permissionBusy" @onclick='() => Decide(permission.RequestId, "reject")'>Отклонить</button>
+                }
+            </article>
+        }
+    </section>
+}
 @if (historyExpired) { <p class="banner" role="status">Предыдущая история истекла. Показан доступный хвост событий.</p> }
 @if (reconnecting) { <p class="banner reconnect" role="status">Переподключение к потоку…</p> }
 @if (error != null) { <p role="alert" class="error">@error</p> }
@@ -54,6 +74,29 @@
 @code {
     [Parameter] public Guid Id { get; set; }
     RunView? run;
+    List<PermissionView> permissions = [];
+    bool permissionBusy;
+    static string PermissionStatus(string status) => status switch {
+        "pending" => "Ожидает вашего решения", "decided" => "Решение сохранено, ожидает доставки",
+        "applied" => "Ответ передан OpenCode", "unknown" => "Доставка не подтверждена",
+        "expired" => "Запрос больше не активен", _ => status };
+    async Task Decide(string requestId, string decision)
+    {
+        permissionBusy = true;
+        try
+        {
+            var token = await Http.GetFromJsonAsync<JsonElement>("api/v1/security/antiforgery", stop.Token);
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/v1/runs/{Id}/permissions/{Uri.EscapeDataString(requestId)}/decision") {
+                Content = JsonContent.Create(new PermissionDecision(decision)) };
+            request.Headers.Add("X-CSRF-TOKEN", token.GetProperty("requestToken").GetString());
+            using var response = await Http.SendAsync(request, stop.Token);
+            if (!response.IsSuccessStatusCode) error = "Решение не принято. Запрос мог завершиться или уже получить другой ответ.";
+            await Refresh();
+        }
+        catch { error = "Не удалось подтвердить сохранение решения. Обновите состояние перед повтором."; }
+        finally { permissionBusy = false; }
+    }
+
     string connection = "Подключение…";
     string? error;
     long cursor;
@@ -90,6 +133,7 @@
             signedIn = true;
             await using var body = await response.Content.ReadAsStreamAsync(stop.Token);
             run = await JsonSerializer.DeserializeAsync<RunView>(body, Wire.Json, stop.Token);
+            permissions = await Http.GetFromJsonAsync<List<PermissionView>>($"api/v1/runs/{Id}/permissions", stop.Token) ?? [];
         }
         catch { error = "Не удалось получить состояние задачи. Войдите в систему или повторите позже."; }
     }

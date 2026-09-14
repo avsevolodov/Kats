@@ -38,6 +38,22 @@ IF OBJECT_ID(N'dbo.Artifacts',N'U') IS NULL
 IF OBJECT_ID(N'dbo.DataProtectionKeys',N'U') IS NULL
   CREATE TABLE dbo.DataProtectionKeys(Id int IDENTITY NOT NULL PRIMARY KEY, FriendlyName nvarchar(max) NULL, Xml nvarchar(max) NULL);
 IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='IX_Runs_Owner_CreatedAt' AND object_id=OBJECT_ID('dbo.Runs')) CREATE INDEX IX_Runs_Owner_CreatedAt ON dbo.Runs(Owner,CreatedAt);
+IF OBJECT_ID(N'dbo.Permissions', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Permissions (
+        OperationId uniqueidentifier NOT NULL,
+        RequestId nvarchar(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+        Description nvarchar(max) NOT NULL,
+        Decision nvarchar(max) NOT NULL,
+        Status nvarchar(max) NOT NULL,
+        CreatedAt datetime2 NOT NULL,
+        DecidedAt datetime2 NULL,
+        DecidedBy nvarchar(max) NULL,
+        CONSTRAINT PK_Permissions PRIMARY KEY (OperationId, RequestId),
+        CONSTRAINT FK_Permissions_Operations FOREIGN KEY (OperationId) REFERENCES dbo.Operations(Id)
+    );
+END;
+
 COMMIT;
 GO
 -- Separate batch: AuthKind must exist before this UPDATE is compiled.

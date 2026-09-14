@@ -17,6 +17,7 @@ message RunnerFrame {
     OutputBatch output = 15;
     CompleteOperation complete = 16;
     FetchGitCredential fetch_git_credential = 17;
+    PermissionExchange permission = 18;
   }
 }
 message GatewayFrame {
@@ -30,6 +31,7 @@ message GatewayFrame {
     AbortRequested abort = 15;
     ProtocolError error = 16;
     GitCredential git_credential = 17;
+    PermissionResult permission = 18;
   }
 }
 message Hello {
@@ -105,3 +107,6 @@ message OperationSnapshot {
 }
 message AbortRequested { OperationKey key = 1; string reason = 2; }
 message ProtocolError { string code = 1; string safe_message = 2; bool retryable = 3; int64 expected_sequence = 4; }
+
+message PermissionExchange { OperationKey key = 1; string session_id = 2; string request_id = 3; string description = 4; string phase = 5; }
+message PermissionResult { string decision = 1; string status = 2; }

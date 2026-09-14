@@ -52,3 +52,6 @@ public static class Wire
         return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 }
+
+public sealed record PermissionView(string RequestId, string Description, string Status, string Decision, DateTime? DecidedAt);
+public sealed record PermissionDecision(string Decision);

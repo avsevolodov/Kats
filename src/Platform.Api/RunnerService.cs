@@ -28,7 +28,7 @@ public sealed class RunnerService(SqlStore store, IConfiguration config) : Runne
                 else
                 {
                     await store.TouchRunnerSession(boot, workload);
-                    var key = f.Resume?.Key ?? f.Begin?.Key ?? f.Heartbeat?.Key ?? f.Output?.Key ?? f.Complete?.Key ?? f.FetchGitCredential?.Key;
+                    var key = f.Resume?.Key ?? f.Begin?.Key ?? f.Heartbeat?.Key ?? f.Output?.Key ?? f.Complete?.Key ?? f.FetchGitCredential?.Key ?? f.Permission?.Key;
                     if (key != null) Rules.Require(key.BootId == boot, "FENCED", 403);
                     switch (f.PayloadCase)
                     {
@@ -43,6 +43,8 @@ public sealed class RunnerService(SqlStore store, IConfiguration config) : Runne
                             break;
                         case RunnerFrame.PayloadOneofCase.Output:
                         case RunnerFrame.PayloadOneofCase.Complete: reply.Ack = await store.Produce(workload, f); break;
+                        case RunnerFrame.PayloadOneofCase.Permission:
+                            reply.Permission = await store.ExchangePermission(workload, f.Permission!); break;
                         case RunnerFrame.PayloadOneofCase.FetchGitCredential:
                             reply.GitCredential = await store.FetchGitCredential(workload, f.FetchGitCredential!.Key); break;
                         default: throw new PlatformException("INVALID_MESSAGE", 400);

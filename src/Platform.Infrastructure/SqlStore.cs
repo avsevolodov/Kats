@@ -9,7 +9,7 @@ using Microsoft.Extensions.Configuration;
 namespace AgentPlatform;
 
 // Deliberately serialized short writes for the ten-run MVP. No network calls while holding the lock.
-public sealed class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtectionProvider protection, IConfiguration config)
+public sealed partial class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtectionProvider protection, IConfiguration config)
 {
     readonly IDataProtector protector = protection.CreateProtector("GitCredentials.v1");
     IReadOnlyList<string> AllowedHosts

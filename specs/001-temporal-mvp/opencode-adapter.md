@@ -31,7 +31,9 @@ Idle не всегда означает success: проверить финаль
 
 MVP разрешает чтение/редактирование workspace и ограниченные команды проверки в контейнере. Tool permissions задать явно; запрещены push, PR, SSH, произвольные сетевые tools, sharing, package installs без внутреннего разрешённого фида. Репозиторий рассматривается как недоверенные данные. Не загружать repo-provided plugins/config, меняющие security policy; способ отключения подтвердить smoke-тестом pinned версии. Если надёжно отключить нельзя, MVP repo allowlist ограничивается доверенными fixture/pilot repositories, это записывается как security gate, не замалчивается.
 
-Неожиданный permission/question: abort и FAILED(PERMISSION_REQUIRED_UNSUPPORTED), без автоматического ответа «allow». HITL позже.
+Следующий этап реализует permission для server/local через durable SQL + UI once/reject;
+см. [контракт этапа](../../docs/permissions.md). Старый cli сохраняет ограничения.
+Question и дочерние агенты остаются вне этапа. Никакого автоматического allow-all.
 
 ## Loss semantics
 

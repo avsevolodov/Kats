@@ -9,6 +9,7 @@ from .transport import Transport
 from .workspace import Workspace
 from .opencode import OpenCode
 from .cli import OpenCodeCli
+from .local_server import LocalOpenCode
 
 
 def status(message: str) -> None:
@@ -65,6 +66,12 @@ async def process(t, assignment, code, workspace):
             ack = await t.request("begin", pb.BeginOperation(key=key, opencode_session_id=session))
             if not ack.ack.begin_authorized:
                 raise RunnerError("BEGIN_NOT_AUTHORIZED")
+            async def permission_exchange(request_id, description, phase):
+                response = await t.request("permission", pb.PermissionExchange(key=key,
+                    session_id=session, request_id=request_id, description=description, phase=phase))
+                return response.permission
+            if isinstance(code, OpenCode):
+                code.permission_exchange = permission_exchange
             status("running OpenCode")
             summary = await code.run(assignment.prompt, emit, t.abort)
             patch = await workspace.patch()
@@ -84,7 +91,7 @@ async def process(t, assignment, code, workspace):
         if root == "CANCELLED":
             outcome = pb.OPERATION_OUTCOME_CANCELLED
         elif root in {"ABORT_UNCONFIRMED", "OPENCODE_TIMEOUT", "FENCED", "LEASE_EXPIRED", "RUNNER_FAILURE",
-                      "OPENCODE_CLI_INCOMPLETE", "OPENCODE_CLI_EXIT_FAILED", "OPENCODE_CLI_INVALID_JSON", "OPENCODE_CLI_ERROR"} or "ABORT_UNCONFIRMED" in error:
+                      "OPENCODE_CLI_INCOMPLETE", "OPENCODE_CLI_EXIT_FAILED", "OPENCODE_CLI_INVALID_JSON", "OPENCODE_CLI_ERROR", "PERMISSION_REPLY_UNKNOWN", "PERMISSION_STATE_UNKNOWN"} or "ABORT_UNCONFIRMED" in error:
             outcome = pb.OPERATION_OUTCOME_UNKNOWN
         summary = patch = ""
     finally:
@@ -102,10 +109,10 @@ async def run():
     backend = os.environ.get("OPENCODE_BACKEND", "server")
     mode = os.environ.get("RUNNER_MODE", "real")
     target = os.environ["PLATFORM_GRPC"]
-    if backend not in {"server", "cli"}:
+    if backend not in {"server", "cli", "local"}:
         raise RunnerError("INVALID_OPENCODE_BACKEND")
     code = None if mode == "fake" else (
-        OpenCodeCli() if backend == "cli" else OpenCode(os.environ.get("OPENCODE_URL", "http://127.0.0.1:4096")))
+        OpenCodeCli() if backend == "cli" else LocalOpenCode() if backend == "local" else OpenCode(os.environ.get("OPENCODE_URL", "http://127.0.0.1:4096")))
     status(f"starting mode={mode} backend={backend} grpc={target}")
     if code and backend == "cli":
         await code.health()
@@ -123,14 +130,25 @@ async def run():
         except TimeoutError:
             await code.close()
             raise RunnerError("OPENCODE_STARTUP_TIMEOUT") from None
+        except BaseException:
+            await code.close()
+            raise
         # Fail closed on leftover sessions after Python restart: pod recreation required.
-        response = await code.http.get("/session", params={"directory": code.directory})
-        response.raise_for_status()
-        if response.json(): raise RunnerError("LEFTOVER_SESSIONS_RECREATE_POD")
+        try:
+            response = await code.http.get("/session", params={"directory": code.directory})
+            response.raise_for_status()
+            if response.json(): raise RunnerError("LEFTOVER_SESSIONS_RECREATE_POD")
+        except BaseException:
+            await code.close()
+            raise
         status(f"OpenCode server ready version={code.version}")
     boot = str(uuid.uuid4())
     status(f"boot={boot[:8]} connecting")
-    t = Transport(target, os.environ["RUNNER_CA"], os.environ["RUNNER_CERT"], os.environ["RUNNER_KEY"], boot, code.version if code else "fake")
+    try:
+        t = Transport(target, os.environ["RUNNER_CA"], os.environ["RUNNER_CERT"], os.environ["RUNNER_KEY"], boot, code.version if code else "fake")
+    except BaseException:
+        if code: await code.close()
+        raise
     connection = asyncio.create_task(t.run())
     idle_since = time.monotonic()
     last_idle_log = 0.0

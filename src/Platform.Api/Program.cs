@@ -149,6 +149,8 @@ api.MapPost("/runs", async (StartRun r, HttpContext c, IAntiforgery a, SqlStore 
 api.MapGet("/runs", async (HttpContext c, SqlStore s) => Results.Ok(new { items = await s.List(Owner(c)), nextCursor = (string?)null }));
 api.MapGet("/runs/{id:guid}", async (Guid id, HttpContext c, SqlStore s) => await s.Get(Owner(c), id));
 api.MapPost("/runs/{id:guid}/cancel", async (Guid id, CancelRun r, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); var result = await s.Cancel(Owner(c), id, r.CommandId); return Results.Accepted(result.StatusUrl, result); });
+api.MapGet("/runs/{id:guid}/permissions", async (Guid id, HttpContext c, SqlStore s) => await s.Permissions(Owner(c), id));
+api.MapPost("/runs/{id:guid}/permissions/{requestId}/decision", async (Guid id, string requestId, PermissionDecision decision, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); await s.DecidePermission(Owner(c), id, requestId, decision); return Results.Ok(); });
 api.MapGet("/runs/{id:guid}/events", async (Guid id, HttpContext c, SqlStore s) => { var raw = c.Request.Query["afterSequence"].FirstOrDefault() ?? "0"; Rules.Require(long.TryParse(raw, out var n), "INVALID_CURSOR", 400); return await s.Events(Owner(c), id, n); });
 api.MapGet("/runs/{id:guid}/artifacts/{artifact:guid}", async (Guid id, Guid artifact, HttpContext c, SqlStore s) => { var a = await s.Artifact(Owner(c), id, artifact); return Results.File(a.Content, "text/plain; charset=utf-8", a.Kind == "patch" ? "changes.patch" : "summary.txt"); });
 app.MapGrpcService<RunnerService>();

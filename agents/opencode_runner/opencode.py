@@ -5,17 +5,19 @@ import time
 from pathlib import Path
 import httpx
 from .core import RunnerError, PromptGuard
+from .permissions import Permissions
 from .presentation import format_new_message_parts
 
 
 class OpenCode:
-    def __init__(self, url="http://127.0.0.1:4096", transport=None):
+    def __init__(self, url="http://127.0.0.1:4096", transport=None, *, trust_env=True):
         auth = ("opencode", os.environ["OPENCODE_SERVER_PASSWORD"]) if os.environ.get("OPENCODE_SERVER_PASSWORD") else None
-        self.http = httpx.AsyncClient(base_url=url, auth=auth, transport=transport, timeout=10)
+        self.http = httpx.AsyncClient(base_url=url, auth=auth, transport=transport, timeout=10, trust_env=trust_env)
         self.directory = str(Path(os.environ.get("WORKSPACE_ROOT", "/workspace")).resolve() / "current")
         self.session = None
         self.version = "unknown"
         self.guard = PromptGuard()
+        self.permission_exchange = None
 
     async def health(self):
         r = await self.http.get("/global/health"); r.raise_for_status()
@@ -56,6 +58,7 @@ class OpenCode:
         deadline = time.monotonic() + 20*60
         last_text = ""
         seen_parts: set[str] = set()
+        permissions = Permissions(self, self.permission_exchange) if self.permission_exchange else None
         # Message polling is the reliable source for text + sanitized tool/step markers.
         # SSE remains permission/question abort only (not a second prompt path).
         events = asyncio.create_task(self.events(emit, abort_requested))
@@ -64,6 +67,8 @@ class OpenCode:
                 if abort_requested.is_set():
                     stopped = await self.abort()
                     raise RunnerError("CANCELLED" if stopped else "ABORT_UNCONFIRMED")
+                if permissions:
+                    await permissions.poll(abort_requested)
                 r = await self.http.get(f"/session/{self.session}/message", params={"directory": self.directory}); r.raise_for_status()
                 assistants = [m for m in r.json() if m.get("info", {}).get("role") == "assistant"]
                 if assistants:
@@ -101,7 +106,7 @@ class OpenCode:
                     data = json.loads(line[5:]); properties = data.get("properties", {})
                     if properties.get("sessionID") != self.session:
                         continue
-                    if data.get("type") in {"permission.asked", "question.asked"}:
+                    if data.get("type") == "question.asked" or (data.get("type") == "permission.asked" and not self.permission_exchange):
                         self.permission_required = True
                         abort_requested.set()
         except (httpx.HTTPError, json.JSONDecodeError):

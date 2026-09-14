@@ -3,6 +3,7 @@
 ## Запуск приложения
 
 Основной сценарий разработки: [Rider + uv](docs/rider-uv.md).
+Следующий этап: [разрешения OpenCode через UI и локальный server wrapper](docs/permissions.md).
 API запускает hosted Blazor WASM: отдельный UI-процесс не нужен.
 
 Для нового разработчика: [тестовый стенд WSL2](docs/developer-test-environment.md).
