@@ -8,7 +8,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from .core import RunnerError
 from . import runner_pb2 as pb
-from .core import RunnerError
 
 
 _SHA = re.compile(r"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
@@ -90,15 +89,8 @@ class Workspace:
                 env["GIT_ASKPASS"] = os.environ["GIT_ASKPASS"]
                 env["GIT_CREDENTIAL_FILE"] = str(Path(os.environ["GIT_CREDENTIAL_DIR"]) / assignment.credential_ref)
             await self.git("fetch", "--depth=1", assignment.clone_url, assignment.base_commit, cwd=self.repo, env=env)
-        finally:
-            if secret_path:
-                try:
-                    Path(secret_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
-        await self.git("checkout", "--detach", "FETCH_HEAD", cwd=self.repo)
-        head = (await self.git("rev-parse", "HEAD", cwd=self.repo)).decode().strip()
-        if sha and head != assignment.base_commit:
+            await self.git("checkout", "--detach", "FETCH_HEAD", cwd=self.repo)
+            head = (await self.git("rev-parse", "HEAD", cwd=self.repo)).decode().strip()
             if _SHA.fullmatch(assignment.base_commit) and head != assignment.base_commit:
                 raise RunnerError("COMMIT_MISMATCH")
             for p in self.repo.rglob("*"):

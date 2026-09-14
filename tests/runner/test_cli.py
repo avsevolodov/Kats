@@ -32,6 +32,9 @@ print(json.dumps({"type":"step_start", "part":{}}), flush=True)
 print(json.dumps({"type":"tool", "part":{"tool":"read","input":{"path":"src/a.cs","token":"must-not-leak"}}}), flush=True)
 print(json.dumps({"type":"text", "part":{"text":"result"}}), flush=True)
 if mode == "exit": sys.exit(3)
+if mode == "error":
+    print(json.dumps({"type":"error","error":{"name":"ProviderError","data":{"message":"model unavailable"}}}), flush=True)
+    sys.exit(0)
 if mode != "partial": print(json.dumps({"type":"step_finish", "part":{"reason":"stop"}}))
 ''')
     binary.chmod(0o755)
@@ -83,7 +86,12 @@ def test_cli_stdin_json_and_no_repeat(cli):
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("mode,error", [("bad","INVALID_JSON"), ("partial","INCOMPLETE"), ("exit","EXIT_FAILED")])
+@pytest.mark.parametrize("mode,error", [
+    ("bad", "INVALID_JSON"),
+    ("partial", "INCOMPLETE"),
+    ("exit", "EXIT_FAILED"),
+    ("error", "OPENCODE_CLI_ERROR"),
+])
 def test_cli_failure_is_not_success(cli, monkeypatch, mode, error):
     monkeypatch.setenv("TEST_CLI_MODE", mode)
     async def exercise():

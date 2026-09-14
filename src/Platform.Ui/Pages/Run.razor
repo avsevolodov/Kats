@@ -432,7 +432,7 @@
                     entries.Add(new TimelineEntry(EntryKind.Notice, "Получен пустой фрагмент лога агента.", "", ""));
                     return;
                 }
-                var text = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
+                text = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("text", out var t1) ? t1.GetString() ?? "" : "";
                 if (text.Length == 0) return;
                 AppendAgent(text);
                 break;
