@@ -12,6 +12,7 @@ public static class States
 }
 public sealed record StartRun(Guid CommandId, Guid RepositoryId, string BaseCommit, string Prompt);
 public sealed record CancelRun(Guid CommandId);
+public sealed record ConfirmRun(Guid CommandId, string RequestId, string Decision, string[][]? Answers = null);
 public sealed record UpsertRepository(string DisplayName, string CloneUrl, string AuthKind, string ProviderHint, string? Username = null, string? Password = null);
 public sealed record RepositoryView(Guid RepositoryId, string DisplayName, string CloneUrl, string AuthKind, string ProviderHint, bool HasCredential, bool Enabled);
 public sealed record RunnerView(Guid BootId, string WorkloadHint, string Version, DateTime LastSeenAt, string State,

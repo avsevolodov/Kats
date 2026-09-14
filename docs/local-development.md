@@ -37,37 +37,36 @@ chmod +x scripts/git-askpass.py
 | `runner.allowedHosts` | Разрешённые Git hostname через запятую |
 | `runner.provider`, `model` | ID provider/model из конфигурации OpenCode |
 | `images.opencode` | Доступный проверенный image с фиксированным tag/digest, содержащий команду `opencode` |
-| `local` | Пути к dotnet/OpenCode; Python runner запускается через uv |
+| `local` | Пути к dotnet/OpenCode; Python runner через uv. Опционально `platformGrpc` (`host:8081`) при API на Windows и runner в WSL |
 
 Зарегистрируйте OIDC redirect URI **`https://localhost:8443/signin-oidc`**.
 Отключать проверку TLS или авторизацию не требуется. UI доступен на `https://localhost:8443`,
 вход — `/login`, gRPC runner — `127.0.0.1:8081` (на той же ОС) или IP хоста Windows
 из WSL. HTTPS позволяет работать secure-cookie и WebSocket.
 
-### Гибрид: C# на Windows, Python/Docker в WSL
+### Runner в WSL, API на Windows
 
-Типичный стенд: API/Worker в Rider на Windows; runner (`uv`) и infra Compose в WSL.
-**Не** поднимайте `docker compose up api` — C# уже на хосте.
-
-`dev.py run runner` сам подставляет `PLATFORM_GRPC=<default-gateway>:8081`
-(из `ip route`, не DNS `10.255.255.254`) и `PLATFORM_GRPC_SSL_NAME=localhost`.
-Ручной override нужен только если автоопределение неверно:
+В классическом WSL2 NAT `127.0.0.1` — Linux, не Windows. `dev.py run runner`
+ставит `PLATFORM_GRPC` на Windows-host (часто `172.x`): nameserver из
+`/etc/resolv.conf`, а если там DNS stub `10.255.255.254` — default gateway
+из маршрута. Плюс `PLATFORM_GRPC_SSL_NAME=localhost` (SAN dev-сертификата).
+Явный override:
 
 ```json
 "local": { "platformGrpc": "172.x.x.x:8081" }
 ```
 
-Или `"platformGrpc": "auto"` — то же, что отсутствие поля.
-
-Проверка:
+Проверка из WSL (NAT):
 
 ```bash
-ip -4 route show default | awk '{print $3}'
-nc -vz "$(ip -4 route show default | awk '{print $3}')" 8081
+HOST=$(ip route show default | awk '{print $3; exit}')
+nc -vz "$HOST" 8081
 ```
 
-На Windows API должен слушать `0.0.0.0:8081` (`Runner:ServerCertificate`).
-При необходимости разрешите TCP 8081 в Firewall для сети WSL.
+Mirrored networking (nameserver `127.0.0.1`): launcher оставляет `localhost:8081`.
+API слушает `ListenAnyIP(8081)`; в NAT при необходимости откройте 8081 в
+Windows Firewall. Корпоративный `HTTP_PROXY` для runner снимается: иначе gRPC
+уходит на proxy и получает 502.
 
 Выполните `sql/001-initial.sql` в выбранной БД через SSMS/sqlcmd до запуска API/worker.
 Если БД уже была создана до полей credentials, дополнительно выполните
@@ -75,19 +74,16 @@ nc -vz "$(ip -4 route show default | awk '{print $3}')" 8081
 Для списка подключённых агентов выполните `sql/003-runner-sessions.sql` (таблица RunnerSessions).
 Учётная запись приложения должна иметь права на чтение/изменение таблиц; schema setup
 выполняется отдельно пользователем с DDL правами. Скрипт создания таблиц повторяемый.
-Добавьте разрешённый репозиторий через UI `/repositories` после входа
-(Anonymous или PAT, в т.ч. GitHub), либо SQL:
+Добавьте разрешённый репозиторий (используйте собственные URL и ID):
 
 ```sql
-INSERT INTO dbo.Repositories (Id, DisplayName, CloneUrl, CredentialRef, AuthKind, ProviderHint, Enabled)
-VALUES (NEWID(), N'Sample', N'https://github.com/your-account/sample.git', N'', N'Anonymous', N'GitHub', 1);
+INSERT INTO dbo.Repositories (Id, DisplayName, CloneUrl, CredentialRef, Enabled)
+VALUES (NEWID(), N'Sample', N'https://github.com/your-account/sample.git', N'', 1);
 ```
 
-PAT из admin UI хранится в `CredentialCipher` (ASP.NET Data Protection) и выдаётся
-runner только через `FetchGitCredential`. Legacy: для приватного repo без cipher
-`CredentialRef` — имя файла в `.local/git-credentials`, например `sample`;
+Для приватного repo `CredentialRef` — имя файла в `.local/git-credentials`, например `sample`;
 содержимое файла: JSON с `username` и `password` (read-only token), права `600`.
-В UI укажите ветку (`main`) или полный commit SHA доступного репозитория. Runner отклоняет репозитории
+В UI укажите полный commit SHA доступного репозитория. Runner отклоняет репозитории
 с `.opencode`, `opencode.json`, `opencode.jsonc`, symlinks, submodules и LFS по правилам MVP.
 Host clone URL должен входить в `Git:AllowedHosts` / `runner.allowedHosts` (например `github.com`).
 
@@ -181,6 +177,9 @@ BeginOperation сохраняется до запуска CLI. Поле session 
 и измените `runner.cliVersion`. Реальный OpenCode/LLM smoke ещё обязателен.
 Compose продолжает использовать backend `server`: CLI-профиль предназначен для native.
 Для возврата к прежнему поведению задайте `runner.backend: "server"` (default).
+
+HITL confirmation (permission/question → UI Once/Always/Reject) работает **только** с
+`runner.backend: "server"`. CLI не отдаёт ask-события наружу и не может мостить UI.
 
 ### Server API
 

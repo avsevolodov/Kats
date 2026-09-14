@@ -37,7 +37,7 @@ def configure():
     realm = {
         "realm": "kats-dev", "enabled": True, "sslRequired": "none",
         "registrationAllowed": False, "resetPasswordAllowed": False,
-        "roles": {"realm": [{"name": "admin", "description": "Repository allowlist admin"}]},
+        "roles": {"realm": [{"name": "admin", "description": "Platform admin"}]},
         "clients": [{"clientId": "kats-local", "enabled": True,
             "protocol": "openid-connect", "publicClient": False, "secret": c["client"],
             "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
@@ -69,7 +69,7 @@ IF DB_ID(N'KatsDev') IS NULL CREATE DATABASE KatsDev;
 GO
 USE KatsDev;
 GO
-""" + (ROOT / "sql/001-initial.sql").read_text() + "\nGO\n" + (ROOT / "sql/002-repository-credentials.sql").read_text() + "\nGO\n" + (ROOT / "sql/003-runner-sessions.sql").read_text() + "\nGO\n" + (ROOT / "sql/004-permissions.sql").read_text() + f"""
+""" + (ROOT / "sql/001-initial.sql").read_text() + "\nGO\n" + (ROOT / "sql/002-repository-credentials.sql").read_text() + "\nGO\n" + (ROOT / "sql/003-runner-sessions.sql").read_text() + "\nGO\n" + (ROOT / "sql/004-operation-confirmations.sql").read_text() + f"""
 GO
 IF SUSER_ID(N'kats_dev') IS NULL CREATE LOGIN kats_dev WITH PASSWORD=N'{password}', CHECK_POLICY=OFF;
 IF USER_ID(N'kats_dev') IS NULL CREATE USER kats_dev FOR LOGIN kats_dev;

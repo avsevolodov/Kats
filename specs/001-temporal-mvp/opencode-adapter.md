@@ -11,8 +11,8 @@
 ## Последовательность
 
 1. Создать BootId, gRPC Hello, проверить version/health локального OpenCode.
-2. Claim assignment (без секрета). Для AuthKind=Pat без legacy CredentialRef вызвать FetchGitCredential по OperationKey; для Anonymous — без askpass; legacy CredentialRef — файл из mounted dir. Подготовить чистый workspace, clone зарегистрированного repo, checkout точного commit; не получать arbitrary URL из prompt.
-3. Проверить отсутствие submodules/LFS, лимит размера, запрет credentials в `.git/config`; временный askpass/файл удалить после clone.
+2. Claim assignment. Подготовить чистый workspace, clone зарегистрированного repo, checkout точного commit; не получать arbitrary URL из prompt.
+3. Проверить отсутствие submodules/LFS, лимит размера, запрет credentials в `.git/config`; закрыть read-only credential helper после clone.
 4. Создать OpenCode session, сохранить ID в Python memory; BeginOperation и дождаться committed ACK.
 5. Отправить ровно один prompt для этого operation. Сохранить локальный флаг prompt_sent; при HTTP неопределённости читать ту же session, не повторять prompt автоматически. Устойчивый message ID использовать только после проверки семантики pinned API, не считать его гарантией идемпотентности по умолчанию.
 6. SSE читать независимо от gRPC output writer; coalesce preview до 1 batch/s. Heartbeat/control обрабатываются независимо от тяжёлого model response.
@@ -31,9 +31,7 @@ Idle не всегда означает success: проверить финаль
 
 MVP разрешает чтение/редактирование workspace и ограниченные команды проверки в контейнере. Tool permissions задать явно; запрещены push, PR, SSH, произвольные сетевые tools, sharing, package installs без внутреннего разрешённого фида. Репозиторий рассматривается как недоверенные данные. Не загружать repo-provided plugins/config, меняющие security policy; способ отключения подтвердить smoke-тестом pinned версии. Если надёжно отключить нельзя, MVP repo allowlist ограничивается доверенными fixture/pilot repositories, это записывается как security gate, не замалчивается.
 
-Следующий этап реализует permission для server/local через durable SQL + UI once/reject;
-см. [контракт этапа](../../docs/permissions.md). Старый cli сохраняет ограничения.
-Question и дочерние агенты остаются вне этапа. Никакого автоматического allow-all.
+Server backend: `permission.asked` / `question.asked` эскалируются в durable platform confirmation (UI once/always/reject или answer/reject). Auto-allow запрещён. Ответ владельца доставляется runner’у; runner вызывает OpenCode `POST /permission/{id}/reply` или `/question/{id}/reply|reject` (pinned 1.2.27). Timeout ответа 5 минут → reject + при необходимости FAILED(PERMISSION_TIMEOUT). Потеря SSE event channel — fail-closed (abort / UNKNOWN), не HITL. CLI backend: HITL не поддерживается; policy deny и внутренний reject ask; UI confirm требует `OPENCODE_BACKEND=server`.
 
 ## Loss semantics
 

@@ -14,13 +14,13 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 var builder = WebApplication.CreateBuilder(args);
 if (builder.Environment.IsDevelopment()) builder.WebHost.UseStaticWebAssets();
+var adminRole = builder.Configuration["Security:AdminRole"] ?? "admin";
 builder.WebHost.ConfigureKestrel(k =>
 {
     k.Limits.MaxRequestBodySize = 32 * 1024;
     k.ListenAnyIP(8080, l => l.Protocols = HttpProtocols.Http1);
     var browserCertificate = builder.Configuration["Browser:ServerCertificate"];
-    // Prefer HTTP/1.1 for browser TLS so classic WebSocket Upgrade (GET) is used;
-    // HTTP/2 Extended CONNECT is also accepted by stream middleware if enabled later.
+    // HTTP/1.1 avoids Extended CONNECT WebSocket path; stream still accepts CONNECT if enabled later.
     if (!string.IsNullOrEmpty(browserCertificate)) k.ListenAnyIP(8443, l =>
     {
         l.Protocols = HttpProtocols.Http1;
@@ -149,10 +149,11 @@ api.MapPost("/runs", async (StartRun r, HttpContext c, IAntiforgery a, SqlStore 
 api.MapGet("/runs", async (HttpContext c, SqlStore s) => Results.Ok(new { items = await s.List(Owner(c)), nextCursor = (string?)null }));
 api.MapGet("/runs/{id:guid}", async (Guid id, HttpContext c, SqlStore s) => await s.Get(Owner(c), id));
 api.MapPost("/runs/{id:guid}/cancel", async (Guid id, CancelRun r, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); var result = await s.Cancel(Owner(c), id, r.CommandId); return Results.Accepted(result.StatusUrl, result); });
-api.MapGet("/runs/{id:guid}/permissions", async (Guid id, HttpContext c, SqlStore s) => await s.Permissions(Owner(c), id));
-api.MapPost("/runs/{id:guid}/permissions/{requestId}/decision", async (Guid id, string requestId, PermissionDecision decision, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); await s.DecidePermission(Owner(c), id, requestId, decision); return Results.Ok(); });
+api.MapPost("/runs/{id:guid}/confirm", async (Guid id, ConfirmRun r, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); var result = await s.Confirm(Owner(c), id, r); return Results.Accepted(result.StatusUrl, result); });
 api.MapGet("/runs/{id:guid}/events", async (Guid id, HttpContext c, SqlStore s) => { var raw = c.Request.Query["afterSequence"].FirstOrDefault() ?? "0"; Rules.Require(long.TryParse(raw, out var n), "INVALID_CURSOR", 400); return await s.Events(Owner(c), id, n); });
 api.MapGet("/runs/{id:guid}/artifacts/{artifact:guid}", async (Guid id, Guid artifact, HttpContext c, SqlStore s) => { var a = await s.Artifact(Owner(c), id, artifact); return Results.File(a.Content, "text/plain; charset=utf-8", a.Kind == "patch" ? "changes.patch" : "summary.txt"); });
+// HTTP/1.1 WebSocket uses GET; HTTP/2 uses Extended CONNECT. MapGet → 405 on H2.
+api.Map("/stream", BrowserStream.Handle);
 app.MapGrpcService<RunnerService>();
 app.MapFallbackToFile("index.html");
 app.Run();

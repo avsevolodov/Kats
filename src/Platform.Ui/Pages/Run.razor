@@ -16,34 +16,41 @@
     <p>Исходная база: <code>@run.BaseCommit</code></p>
     @if (!States.Terminal(run.Status)) { <button class="secondary" @onclick="Cancel">Отменить</button> }
     @if (run.Status == "NEEDS_ATTENTION") { <p class="error">Исполнитель потерян или результат остановки неизвестен. Автоматический повтор не выполняется. Создайте новую задачу после проверки.</p> }
-    @if (run.ErrorCode != null) { <p role="alert">@run.ErrorCode</p> }
+    @if (run.ErrorCode == "PERMISSION_TIMEOUT") { <p class="error">Подтверждение не получено вовремя. Операция завершена без автоматического разрешения.</p> }
+    else if (run.ErrorCode != null) { <p role="alert">@run.ErrorCode</p> }
+    @if (pendingConfirm != null && run != null && !States.Terminal(run.Status))
+    {
+        <section class="confirm-panel" aria-live="polite">
+            <h2>Требуется подтверждение</h2>
+            <p class="muted">@ConfirmSummary(pendingConfirm)</p>
+            @if (pendingConfirm.Kind == "permission")
+            {
+                <div class="actions">
+                    <button disabled="@confirmBusy" @onclick='() => AnswerConfirm("once")'>Разрешить один раз</button>
+                    <button class="secondary" disabled="@confirmBusy" @onclick='() => AnswerConfirm("always")'>Всегда</button>
+                    <button class="secondary" disabled="@confirmBusy" @onclick='() => AnswerConfirm("reject")'>Отклонить</button>
+                </div>
+            }
+            else
+            {
+                <label>Ответ
+                    <textarea @bind="questionAnswer" rows="3"></textarea>
+                </label>
+                <div class="actions">
+                    <button disabled="@confirmBusy" @onclick='() => AnswerConfirm("answer")'>Отправить ответ</button>
+                    <button class="secondary" disabled="@confirmBusy" @onclick='() => AnswerConfirm("reject")'>Отклонить</button>
+                </div>
+            }
+        </section>
+    }
     @if (run.Artifacts.Count > 0) { <section><h2>Результаты</h2>@foreach (var a in run.Artifacts) { <p><a href="@a.DownloadUrl" download>@(a.Kind == "patch" ? "Скачать patch" : "Скачать описание результата")</a> · @a.SizeBytes байт</p> }</section> }
-}
-@if (permissions.Count > 0)
-{
-    <section>
-        <h2>Разрешения OpenCode</h2>
-        <p class="muted">Разрешение относится только к указанному запросу. Ожидание входит в срок выполнения задачи.</p>
-        @foreach (var permission in permissions)
-        {
-            <article @key="permission.RequestId">
-                <pre>@permission.Description</pre>
-                <p>Статус: @PermissionStatus(permission.Status)</p>
-                @if (permission.Decision != "") { <p>Решение: @(permission.Decision == "once" ? "Разрешить один раз" : "Отклонить")</p> }
-                @if (permission.Status == "pending")
-                {
-                    <button disabled="@permissionBusy" @onclick='() => Decide(permission.RequestId, "once")'>Разрешить один раз</button>
-                    <button class="secondary" disabled="@permissionBusy" @onclick='() => Decide(permission.RequestId, "reject")'>Отклонить</button>
-                }
-            </article>
-        }
-    </section>
 }
 @if (historyExpired) { <p class="banner" role="status">Предыдущая история истекла. Показан доступный хвост событий.</p> }
 @if (reconnecting) { <p class="banner reconnect" role="status">Переподключение к потоку…</p> }
 @if (error != null) { <p role="alert" class="error">@error</p> }
 <section>
     <h2>Ход выполнения</h2>
+    <p class="muted">Статусы платформы и лог агента (OpenCode preview).</p>
     <div class="timeline" @ref="logEl" aria-live="polite">
         @if (entries.Count == 0)
         {
@@ -109,6 +116,9 @@
     Guid cancelId = Guid.NewGuid();
     ElementReference logEl;
     int agentChars;
+    PendingConfirm? pendingConfirm;
+    string questionAnswer = "";
+    bool confirmBusy;
 
     protected override async Task OnInitializedAsync()
     {
@@ -142,42 +152,53 @@
     {
         try
         {
-            using var response = await Http.GetAsync($"api/v1/runs/{Id}/events?afterSequence={cursor}", stop.Token);
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                signedIn = false;
-                error = "Войдите в систему, чтобы открыть задачу.";
-                return;
-            }
-            if (response.StatusCode == HttpStatusCode.Gone)
-            {
-                historyExpired = true;
-                await Refresh();
-                if (run != null && long.TryParse(run.EarliestAvailableSequence, out var earliest) && earliest > 0)
-                    cursor = earliest - 1;
-                return;
-            }
-            if (!response.IsSuccessStatusCode)
-            {
-                var body = await response.Content.ReadAsStringAsync(stop.Token);
-                error = $"История событий: HTTP {(int)response.StatusCode}" + (body.Length > 0 && body.Length < 200 ? $" ({body})" : "");
-                return;
-            }
-            await using var stream = await response.Content.ReadAsStreamAsync(stop.Token);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: stop.Token);
-            if (!TryGetProperty(doc.RootElement, "items", out var items) || items.ValueKind != JsonValueKind.Array) return;
             var added = false;
-            foreach (var e in items.EnumerateArray())
+            var pages = 0;
+            while (!stop.IsCancellationRequested && pages < 50)
             {
-                if (!TryGetProperty(e, "sequence", out var seqEl)) continue;
-                var n = ReadSequence(seqEl);
-                if (n <= cursor) continue;
-                if (!TryGetProperty(e, "kind", out var kindEl)) continue;
-                var kind = kindEl.GetString();
-                if (string.IsNullOrEmpty(kind)) continue;
-                ApplyEvent(kind, TryGetProperty(e, "payload", out var payload) ? payload : default);
-                cursor = n;
-                added = true;
+                pages++;
+                using var response = await Http.GetAsync($"api/v1/runs/{Id}/events?afterSequence={cursor}", stop.Token);
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    signedIn = false;
+                    error = "Войдите в систему, чтобы открыть задачу.";
+                    return;
+                }
+                if (response.StatusCode == HttpStatusCode.Gone)
+                {
+                    historyExpired = true;
+                    await Refresh();
+                    if (run != null && long.TryParse(run.EarliestAvailableSequence, out var earliest) && earliest > 0)
+                        cursor = earliest - 1;
+                    return;
+                }
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync(stop.Token);
+                    error = $"История событий: HTTP {(int)response.StatusCode}" + (body.Length > 0 && body.Length < 200 ? $" ({body})" : "");
+                    return;
+                }
+                await using var streamBody = await response.Content.ReadAsStreamAsync(stop.Token);
+                using var doc = await JsonDocument.ParseAsync(streamBody, cancellationToken: stop.Token);
+                if (!TryGetProperty(doc.RootElement, "items", out var items) || items.ValueKind != JsonValueKind.Array) return;
+                var pageAdded = false;
+                foreach (var e in items.EnumerateArray())
+                {
+                    if (!TryGetProperty(e, "sequence", out var seqEl)) continue;
+                    var n = ReadSequence(seqEl);
+                    if (n <= cursor) continue;
+                    if (!TryGetProperty(e, "kind", out var kindEl)) continue;
+                    var kind = kindEl.GetString();
+                    if (string.IsNullOrEmpty(kind)) continue;
+                    ApplyEvent(kind, TryGetProperty(e, "payload", out var payload) ? payload : default);
+                    cursor = n;
+                    pageAdded = true;
+                    added = true;
+                }
+                var hasMore = TryGetProperty(doc.RootElement, "hasMore", out var moreEl)
+                    && moreEl.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    && moreEl.GetBoolean();
+                if (!hasMore || !pageAdded) break;
             }
             if (added) error = null;
             await InvokeAsync(StateHasChanged);
@@ -202,8 +223,12 @@
             try
             {
                 var terminal = run != null && States.Terminal(run.Status);
-                var missingHistory = entries.Count == 0 && run != null && run.LastEventSequence is not null and not "0";
-                if (terminal && !missingHistory)
+                var behind = run != null
+                    && long.TryParse(run.LastEventSequence, out var lastSeq)
+                    && lastSeq > 0
+                    && cursor < lastSeq;
+                var missingHistory = entries.Count == 0 && behind;
+                if (terminal && !behind && !missingHistory)
                 {
                     reconnecting = false;
                     connection = "Завершено";
@@ -229,6 +254,32 @@
             var result = await Http.SendAsync(req); result.EnsureSuccessStatusCode(); connection = "Отмена запрошена";
         }
         catch { error = "Подтверждение отмены не получено. Можно повторить запрос."; }
+    }
+
+    async Task AnswerConfirm(string decision)
+    {
+        if (pendingConfirm == null || confirmBusy) return;
+        confirmBusy = true;
+        try
+        {
+            string[][]? answers = null;
+            if (decision == "answer")
+            {
+                var text = questionAnswer.Trim();
+                if (text.Length == 0) { error = "Введите ответ."; return; }
+                answers = [[text]];
+            }
+            var token = await Http.GetFromJsonAsync<JsonElement>("api/v1/security/antiforgery");
+            var body = new ConfirmRun(Guid.NewGuid(), pendingConfirm.RequestId, decision, answers);
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"api/v1/runs/{Id}/confirm") { Content = JsonContent.Create(body) };
+            req.Headers.Add("X-CSRF-TOKEN", token.GetProperty("requestToken").GetString());
+            var result = await Http.SendAsync(req); result.EnsureSuccessStatusCode();
+            pendingConfirm = null;
+            questionAnswer = "";
+            connection = "Ответ отправлен";
+        }
+        catch { error = "Не удалось отправить подтверждение. Можно повторить."; }
+        finally { confirmBusy = false; }
     }
 
     async Task ReadStream()
@@ -288,8 +339,7 @@
                     var n = ReadSequence(message.GetProperty("sequence")); if (n <= cursor) continue;
                     ApplyEvent(kind, message.TryGetProperty("payload", out var payload) ? payload : default);
                     cursor = n;
-                    // Avoid a full run GET on every OutputBatch — that made the timeline feel minutes late.
-                    if (kind is "RunStatusChanged" or "OperationStarted" or "OperationCompleted" or "RunCompleted" or "CancelRequested")
+                    if (kind is "RunStatusChanged" or "OperationStarted" or "OperationCompleted" or "RunCompleted" or "CancelRequested" or "ConfirmationRequired" or "ConfirmationResolved")
                         await Refresh();
                     await InvokeAsync(StateHasChanged);
                     try { await Js.InvokeVoidAsync("platformScrollEnd", logEl); }
@@ -353,8 +403,18 @@
                 break;
             case "CancelRequested":
                 entries.Add(Status("Отмена запрошена", ""));
+                pendingConfirm = null;
+                break;
+            case "ConfirmationRequired":
+                pendingConfirm = ReadPending(payload);
+                entries.Add(Status("Ожидание подтверждения", pendingConfirm?.RequestId ?? ""));
+                break;
+            case "ConfirmationResolved":
+                pendingConfirm = null;
+                entries.Add(Status("Подтверждение", DetailConfirm(payload)));
                 break;
             case "OperationCompleted":
+                pendingConfirm = null;
                 entries.Add(Status("Операция завершена", DetailStatus(payload)));
                 break;
             case "RunCompleted":
@@ -364,6 +424,14 @@
                 entries.Add(new TimelineEntry(EntryKind.Notice, "Промежуточный вывод ограничен. Финальные результаты будут доступны отдельно.", "", ""));
                 break;
             case "OutputBatch":
+                var text = "";
+                if (payload.ValueKind == JsonValueKind.Object && TryGetProperty(payload, "text", out var t))
+                    text = t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "";
+                if (text.Length == 0)
+                {
+                    entries.Add(new TimelineEntry(EntryKind.Notice, "Получен пустой фрагмент лога агента.", "", ""));
+                    return;
+                }
                 var text = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
                 if (text.Length == 0) return;
                 AppendAgent(text);
@@ -407,6 +475,37 @@
             ? id.ValueKind == JsonValueKind.String ? id.GetString() ?? "" : id.GetRawText().Trim('"')
             : "";
 
+    static string DetailConfirm(JsonElement payload)
+    {
+        var decision = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("decision", out var d) ? d.GetString() ?? "" : "";
+        var status = payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "";
+        return string.IsNullOrEmpty(status) ? decision : $"{decision} ({status})";
+    }
+
+    static PendingConfirm? ReadPending(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object) return null;
+        var requestId = payload.TryGetProperty("requestId", out var id) ? id.GetString() ?? "" : "";
+        var kind = payload.TryGetProperty("kind", out var k) ? k.GetString() ?? "" : "";
+        if (string.IsNullOrEmpty(requestId) || string.IsNullOrEmpty(kind)) return null;
+        var summary = kind;
+        if (payload.TryGetProperty("payload", out var body) && body.ValueKind == JsonValueKind.Object)
+        {
+            if (kind == "permission" && body.TryGetProperty("permission", out var perm))
+                summary = $"permission: {perm.GetString()}";
+            else if (kind == "question" && body.TryGetProperty("questions", out var qs) && qs.ValueKind == JsonValueKind.Array && qs.GetArrayLength() > 0)
+            {
+                var first = qs[0];
+                if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty("question", out var q))
+                    summary = q.GetString() ?? kind;
+            }
+        }
+        return new PendingConfirm(requestId, kind, summary ?? kind);
+    }
+
+    static string ConfirmSummary(PendingConfirm confirm) =>
+        confirm.Kind == "permission" ? $"OpenCode запрашивает разрешение ({confirm.Summary})." : confirm.Summary;
+
     static bool TryGetProperty(JsonElement obj, string name, out JsonElement value)
     {
         if (obj.ValueKind == JsonValueKind.Object)
@@ -443,4 +542,5 @@
 
     enum EntryKind { Status, Agent, Notice }
     readonly record struct TimelineEntry(EntryKind Kind, string Text, string Label, string Detail);
+    sealed record PendingConfirm(string RequestId, string Kind, string Summary);
 }

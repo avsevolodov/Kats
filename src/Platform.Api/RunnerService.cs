@@ -28,7 +28,8 @@ public sealed class RunnerService(SqlStore store, IConfiguration config) : Runne
                 else
                 {
                     await store.TouchRunnerSession(boot, workload);
-                    var key = f.Resume?.Key ?? f.Begin?.Key ?? f.Heartbeat?.Key ?? f.Output?.Key ?? f.Complete?.Key ?? f.FetchGitCredential?.Key ?? f.Permission?.Key;
+                    var key = f.Resume?.Key ?? f.Begin?.Key ?? f.Heartbeat?.Key ?? f.Output?.Key ?? f.Complete?.Key
+                        ?? f.FetchGitCredential?.Key ?? f.ConfirmationRequired?.Key;
                     if (key != null) Rules.Require(key.BootId == boot, "FENCED", 403);
                     switch (f.PayloadCase)
                     {
@@ -39,12 +40,24 @@ public sealed class RunnerService(SqlStore store, IConfiguration config) : Runne
                         case RunnerFrame.PayloadOneofCase.Heartbeat:
                             reply.Ack = await store.Renew(workload, f.Heartbeat!.Key);
                             var snapshot = await store.Resume(workload, f.Heartbeat.Key);
-                            if (snapshot.CancelDesired) await responses.WriteAsync(new GatewayFrame { Abort = new() { Key = f.Heartbeat.Key, Reason = "CANCEL_REQUESTED" } });
+                            if (snapshot.CancelDesired)
+                                await responses.WriteAsync(new GatewayFrame { Abort = new() { Key = f.Heartbeat.Key, Reason = "CANCEL_REQUESTED" } });
+                            else if (snapshot.ConfirmationReplyReady)
+                                await responses.WriteAsync(new GatewayFrame
+                                {
+                                    ConfirmationReply = new()
+                                    {
+                                        Key = f.Heartbeat.Key,
+                                        RequestId = snapshot.PendingConfirmationRequestId,
+                                        Decision = snapshot.ConfirmationDecision,
+                                        AnswersJson = snapshot.ConfirmationAnswersJson ?? ""
+                                    }
+                                });
                             break;
                         case RunnerFrame.PayloadOneofCase.Output:
-                        case RunnerFrame.PayloadOneofCase.Complete: reply.Ack = await store.Produce(workload, f); break;
-                        case RunnerFrame.PayloadOneofCase.Permission:
-                            reply.Permission = await store.ExchangePermission(workload, f.Permission!); break;
+                        case RunnerFrame.PayloadOneofCase.Complete:
+                        case RunnerFrame.PayloadOneofCase.ConfirmationRequired:
+                            reply.Ack = await store.Produce(workload, f); break;
                         case RunnerFrame.PayloadOneofCase.FetchGitCredential:
                             reply.GitCredential = await store.FetchGitCredential(workload, f.FetchGitCredential!.Key); break;
                         default: throw new PlatformException("INVALID_MESSAGE", 400);

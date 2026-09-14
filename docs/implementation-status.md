@@ -134,69 +134,72 @@ Evidence: правка csproj/index.html/docs. Live `dotnet build` в агент
 Browser/smoke_ui.py после Rebuild Api+Ui — на машине разработчика с pinned SDK.
 Не считать mock live pass.
 
+## Correction: WebSocket stream 405 on HTTP/2
+
+`/api/v1/stream` был `MapGet`: на HTTPS с HTTP/2 браузер шлёт CONNECT
+(RFC 8441) → 405 Method Not Allowed до handler. Заменено на `Map` без
+фильтра метода (GET + CONNECT), порт 8443 остаётся Http1AndHttp2.
+
+Evidence: правка Program.cs; live — после Stop/Rebuild/Run API в Network у
+`stream` должен быть 101, не 405.
+
+## Restore: local stream/timeline fixes after workspace rollback
+
+Рабочая копия откатилась (пропали timeline UI, BrowserStream Origin/ExpiresUtc,
+REST poll, default `main`). Восстановлено: BrowserStream, Http1 на 8443,
+`Map(/stream)`, Events caught-up cursor, Run.razor timeline+REST poll,
+Runs default branch `main`, CSS/JS scroll helper.
+
+Не восстановлено в этом шаге (нужно отдельно, если ещё нужно): Agents/RunnerSessions,
+Repositories UI/CRUD, PAT credentials, OIDC SaveTokens logout.
+
+## Restore: Agents / Repositories / PAT / OIDC after rollback
+
+Восстановлено: RunnerSessions + Agents UI (admin), repositories CRUD для
+authenticated users, CredentialCipher/PAT + FetchGitCredential, OIDC SaveTokens
++ shared logout RedirectUri, Admin policy на `/runners`, branch/ref в workspace,
+proto `auth_kind` / FetchGitCredential, Worker DataProtection для SqlStore ctor,
+test_env bootstrap 002+003.
+
+Evidence: unit Platform.Tests + build Api/Ui/Worker; live SQL apply 002/003 и browser
+smoke — на стенде разработчика.
+
+Align: CredentialCipher = varbinary/byte[] + ProtectPat; AdminRole under Security;
+Git:AllowedHosts server-side validation (from transcript restore).
 ## Correction: login button after OIDC
 
-После Keycloak cookie сессия работала, но UI всегда показывал «Войти»: ссылка
+После Keycloak cookie-сессия работала, но UI всегда показывал «Войти»: ссылка
 была статической. Runs/Run определяют вход по 401/200 API и показывают
-«Выйти» (`/logout` — SignOut cookie + OIDC) либо «Войти». Кнопка запуска
-блокируется без сессии.
+«Выйти» (`/logout`) либо «Войти». Кнопка «Запустить» блокируется без сессии.
 
-Evidence: правки Program.cs и Blazor pages; live browser smoke на машине
-разработчика после Rebuild.
+Evidence: правки Program.cs и Blazor pages; live browser — после Rebuild Api+Ui.
 
-## Correction: Keycloak logout id_token_hint
+## Correction: WSL runner → Windows API gRPC
 
-Federated `/logout` падал в Keycloak («Missing parameters: id_token_hint»),
-потому что `SaveTokens=false` не сохранял id_token. Включены SaveTokens,
-openid/profile scopes и RedirectUri на SignOut; в test realm — post.logout.redirect.uris.
-Нужен повторный login после обновления (старая cookie без id_token). Переимпорт
-realm или правка client attributes — для нового post-logout URI.
+При API на Windows и runner в WSL `localhost:8081` указывает на Linux; корпоративный
+`HTTP_PROXY` давал gRPC 502 на `127.0.0.1:3128`. `dev.py` вычисляет IP хоста из
+`/etc/resolv.conf` (часто `172.x`) или, при DNS stub `10.255.255.254`, из default
+gateway; задаёт `PLATFORM_GRPC` и `PLATFORM_GRPC_SSL_NAME=localhost`, снимает proxy.
+Override: `local.platformGrpc`. Mirrored (nameserver loopback) → `localhost:8081`.
 
-Evidence: код Program.cs и test_env realm; live logout — после Rebuild API и
-нового входа на стенде разработчика.
+Evidence: unit tests `tests/dev/test_wsl_grpc.py`; live — повтор `dev.py run runner`
+после открытого 8081 на Windows. Transport пишет `gateway reconnect: …`
+в stderr при сбое HELLO (код без секретов), чтобы отличи TimeoutError на claim.
 
-## Correction: base ref accepts branch
+## Runner CLI health observability
 
-Пользовательский Start с именем ветки получал INVALID_COMMIT: валидация и runner
-требовали только SHA. По запросу UX `baseCommit` принимает полный SHA или безопасный
-git ref (ветка/tag). Runner fetch/checkout tip; COMMIT_MISMATCH только для SHA.
-OpenAPI/UI/tests обновлены. Это ослабление FR-012 «только immutable commit» —
-зафиксировано как осознанное отклонение: tip ветки фиксируется в момент fetch,
-в Run сохраняется запрошенный ref.
+`opencode --version` health (timeout **20s**, `VERSION_TIMEOUT_S`) логирует bin до
+старта, bounded stdout/stderr на timeout/failure, принимает версию со stderr;
+mismatch/ok явно. Увеличено с 10s: cold start OpenCode в WSL ~20s.
+`logutil` + INFO stderr в main/transport: mode/backend/grpc/ssl_name, CLI health,
+gateway dial/hello/reconnect, claim idle, operation start/complete/errors.
+`RunnerError` на старте → `runner error: CODE` без полного traceback.
+Не чинит зависание самого OpenCode >20s; run timeout (20*60) не менялся.
 
-Evidence: unit test ValidBaseRef/main и reject `../evil`; Python workspace path
-изменён; live git fetch ветки — на стенде разработчика.
-
-## Global repositories + PAT credentials
-
-Глобальный allowlist: OpenAPI POST/PUT/DELETE `/api/v1/repositories` и UI
-`/repositories` для любого authenticated пользователя. GET list без секретов;
-PAT в `CredentialCipher` через Data Protection (`GitCredentials.v1`). Assignment
-несёт `auth_kind`; runner запрашивает `FetchGitCredential` и удаляет temp askpass
-после fetch. Legacy `CredentialRef` file mount сохранён. Kerberos не реализовывался.
-(Ранее CRUD был только у admin — ограничение снято по запросу.)
-
-Evidence: OpenAPI/proto/SQL/data-model обновлены; unit Rules host/credential
-(15 Platform.Tests checks); Python wipe/anonymous + realm tests (5 passed via
-`C:\Program Files\uv\uv.exe`); Infrastructure/Api/Worker build succeeded with
-installed SDK roll-forward. Добавлен идемпотентный `sql/002-repository-credentials.sql`
-для уже существующих БД без AuthKind/ProviderHint/CredentialCipher.
-Live MSSQL/OIDC/admin UI и real GitHub PAT clone в этой среде не подтверждены.
-
-## Admin connected runners UI
-
-Реализована таблица `RunnerSessions` (`sql/003-runner-sessions.sql`): upsert на
-Hello и каждом gRPC frame, online = LastSeenAt ≤15 s. Admin-only
-`GET /api/v1/runners` join к LEASED/RUNNING operations; UI `/agents` с poll 5 s.
-Таблица не используется для Claim/affinity. OpenAPI Runner/Runners добавлены.
-test_env bootstrap включает 003.
-
-Evidence: Platform.Tests runner view wire (19 checks, hint без полного thumbprint,
-idle/busy, freshness=15); DDL + bootstrap tests (`tests/dev/test_test_env.py` 3 passed).
-Infrastructure/Api build succeeded with SDK 10.0.400 roll-forward. Live MSSQL
-touch/list, multi-replica presence и browser admin smoke в этой среде не подтверждены.
-После добавления RunnerSessions Start падал на FK Commands/Events→Runs: EF не знал
-порядок INSERT. В OnModelCreating объявлены Restrict FK по схеме SQL.
+Evidence: добавлены `tests/runner/test_cli.py` (timeout + stderr version);
+агентская Windows-среда без uv/WSL — прогон у пользователя:
+`uv run --locked pytest tests/runner/test_cli.py -q` и live
+`time opencode --version` + `uv run --locked scripts/dev.py run runner`.
 
 ## UI agent execution timeline
 
@@ -207,32 +210,45 @@ status/cancel/completed) и лог агента из OutputBatch. Баннеры
 durable tool-event kinds и без raw payloads/reasoning. Fake mode эмитит
 маркеры для проверки UI без LLM.
 
-Evidence: добавлены `presentation.py` и `tests/runner/test_presentation.py`;
-обновлены CLI/server adapters и `test_cli`/`test_opencode_contract`.
-`uv run pytest` (presentation + opencode contract): 5 passed.
-CLI subprocess fixtures требуют POSIX — на этой Windows-среде не гонялись.
-T023 не закрыт: нужен browser smoke (fake runner → WS → timeline).
+Evidence: `presentation.py` + `tests/runner/test_presentation.py`; CLI/server
+adapters и contract tests. T023 не закрыт без browser smoke
+(fake runner → WS/REST → timeline).
 
-## Correction: empty Run timeline while events exist
+## Correction: status-only Run timeline (OpenCode logs)
 
-Live run `cedf5f6d-…` имел 7 SQL Events (Accepted→…→RunCompleted/NEEDS_ATTENTION),
-но UI показывал пустой «Ход выполнения» при корректном статусе из GET /runs.
-Причины: `GetFromJsonAsync<JsonElement>` глотал ошибки; REST poll отключался при
-«Подключено»; при уже terminal статусе WS сразу выходил без догрузки истории.
-Исправлено: `JsonDocument` + явные HTTP ошибки, REST poll ~500 ms параллельно с WS,
-догрузка истории на terminal; `Events(after >= NextSequence)` → пустая страница
-вместо INVALID_CURSOR.
+Симптом: в UI видны только статусы платформы, без текста агента. Причины:
+`emit()` мог не вызываться во время prepare/ожидания модели; summary уходил
+только в artifact; REST `/events` не дочитывал `hasMore`; пустой OutputBatch
+молча пропускался.
 
-Evidence: MSSQL select по run id подтвердил 7 events / NextSequence=8; browser
-smoke после Rebuild API+UI — на стенде разработчика.
+Исправлено: lifecycle/progress маркеры `[runner] …` (prepare, prompt, ожидание
+модели ~20s, CLI start); перед `complete` — один clipped summary в OutputBatch;
+`Run.razor` drain `hasMore` (до 50 страниц), case-insensitive `text`, notice на
+пустой batch; подзаголовок «статусы + лог агента». Без raw stderr/reasoning и
+без новых event kinds.
 
-## Correction: WebSocket stream 405
+Evidence: расширен `test_presentation.py` (format_runner, clip_summary_for_preview);
+`uv run --locked pytest tests/runner/test_presentation.py -q` → 5 passed.
+T023 по-прежнему не закрыт: нужен browser smoke fake → WS/REST → timeline с
+`[runner]`/`[шаг]` строками.
 
-DevTools: `Error during WebSocket handshake: Unexpected response code: 405` на
-`/api/v1/stream` при живом Worker/runner. HTTP/2 WebSocket = CONNECT; `MapGet` /
-method-filtered endpoint даёт 405 до handler. Исправлено: stream обрабатывается
-middleware после auth (GET+CONNECT), без endpoint method metadata; browser HTTPS
-оставлен на HTTP/1.1. CA trust (`.local/certs/ca.crt`) не связан с 405.
+## OpenCode server HITL confirmation
 
-Evidence: правка Program.cs; нужен полный Restart API (не hot reload) и проверка
-Network: `stream` → 101.
+Ограниченный HITL: OpenCode server `permission.asked` / `question.asked` → durable
+`OperationConfirmations` + browser events `ConfirmationRequired` /
+`ConfirmationResolved` → owner Once/Always/Reject (или Answer/Reject) →
+`ConfirmationReply` runner → OpenCode `/permission/{id}/reply` или question reply.
+Timeout 5 минут → reject. Cancel supersedes pending. CLI backend без HITL-моста.
+Constitution carve-out; Temporal не участвует в confirmation signals.
+
+Evidence: proto/SQL/openapi/browser-stream обновлены; runner `test_hitl.py` +
+`test_confirmation_protocol.py`; UI панель в `Run.razor`. Live OpenCode 1.2.27 ask
+smoke и browser E2E не выполнялись в этой среде. На существующей БД примените
+`sql/004-operation-confirmations.sql`.
+
+## Restore: repository credentials (partial rollback)
+
+Восстановлены откатившиеся артефакты: `sql/001-initial.sql` с AuthKind/ProviderHint/CredentialCipher,
+OpenAPI CRUD + SecurityMe, realm admin/roles/post.logout, `test_workspace_credentials.py`,
+DEV007 и data-model. Runtime C#/UI/runner для repositories в основном уже был на месте.
+На существующей БД при ошибке Invalid column name выполните `sql/002-repository-credentials.sql`.

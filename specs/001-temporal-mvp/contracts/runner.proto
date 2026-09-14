@@ -17,6 +17,7 @@ message RunnerFrame {
     OutputBatch output = 15;
     CompleteOperation complete = 16;
     FetchGitCredential fetch_git_credential = 17;
+    ConfirmationRequired confirmation_required = 18;
     PermissionExchange permission = 18;
   }
 }
@@ -31,6 +32,7 @@ message GatewayFrame {
     AbortRequested abort = 15;
     ProtocolError error = 16;
     GitCredential git_credential = 17;
+    ConfirmationReply confirmation_reply = 18;
     PermissionResult permission = 18;
   }
 }
@@ -51,17 +53,11 @@ message Assignment {
   string clone_url = 4; // allowlisted; contains no credentials
   string base_commit = 5;
   string prompt = 6;
-  string credential_ref = 7; // legacy mounted file alias, not a secret
+  string credential_ref = 7; // legacy alias; empty when using FetchGitCredential
   int64 lease_until_unix_ms = 8;
   int64 deadline_unix_ms = 9;
   string definition_version = 10;
-  string auth_kind = 11; // anonymous | pat
-}
-message FetchGitCredential { OperationKey key = 1; }
-message GitCredential {
-  string auth_kind = 1; // anonymous | pat
-  string username = 2;
-  string password = 3; // PAT token for GitHub-style HTTPS; never logged
+  string auth_kind = 11; // Anonymous | Pat (wire may be lowercased by adapters)
 }
 message ResumeOperation { OperationKey key = 1; int64 last_acked_producer_sequence = 2; }
 message BeginOperation { OperationKey key = 1; string opencode_session_id = 2; }
@@ -104,9 +100,34 @@ message OperationSnapshot {
   int64 lease_until_unix_ms = 4;
   bool cancel_desired = 5;
   bool begin_committed = 6;
+  string pending_confirmation_request_id = 7; // empty if none
+  bool confirmation_reply_ready = 8;
+  string confirmation_decision = 9; // once|always|reject|answer when reply ready
+  string confirmation_answers_json = 10; // JSON string[][] for question answers
 }
 message AbortRequested { OperationKey key = 1; string reason = 2; }
 message ProtocolError { string code = 1; string safe_message = 2; bool retryable = 3; int64 expected_sequence = 4; }
+message FetchGitCredential { OperationKey key = 1; }
+message GitCredential {
+  string auth_kind = 1; // pat
+  string username = 2;
+  string password = 3;
+}
+// Durable HITL ask from OpenCode server (permission|question). Consumes producer_sequence.
+message ConfirmationRequired {
+  OperationKey key = 1;
+  int64 producer_sequence = 2;
+  string request_id = 3;
+  string kind = 4; // permission | question
+  string safe_payload_json = 5; // sanitized; no secrets
+}
+// Owner decision delivered on heartbeat/resume path (like AbortRequested).
+message ConfirmationReply {
+  OperationKey key = 1;
+  string request_id = 2;
+  string decision = 3; // once|always|reject|answer
+  string answers_json = 4; // JSON string[][] when decision=answer
+}
 
 message PermissionExchange { OperationKey key = 1; string session_id = 2; string request_id = 3; string description = 4; string phase = 5; }
 message PermissionResult { string decision = 1; string status = 2; }

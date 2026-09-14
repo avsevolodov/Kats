@@ -62,6 +62,7 @@ Exit: один и тот же Run доступен через любую API rep
 - [ ] T022 [US1] `Platform.Ui/Pages/Runs`: list/create, repository selector, commit validation, prompt validation, generating/reusing CommandId until known acceptance. FR-002, FR-004.
 - [ ] T023 [US2] Detail page и stream client: run/operation statuses, escaped preview, cursor apply/dedup, reconnect banner, truncated/expired history. FR-002, FR-007.
 - [ ] T024 [US3] Cancel UI и artifact download/summary/patch/base commit. NEEDS_ATTENTION поясняет потерю runner и явный новый Run, не автоматический Retry. FR-002, FR-009, FR-010, FR-011.
+- [ ] T024a [US2] HITL confirmation UI: ConfirmationRequired panel, Once/Always/Reject или Answer/Reject; REST/WS confirm; timeout messaging. FR-002, FR-019.
 - [ ] T025 [US2] Browser tests Start/result, reload, cancel и API switch; cookie истечение закрывает streaming и запрашивает login. FR-002, FR-013, FR-016.
 
 Exit: full fake-runner vertical slice демонстрируется из браузера.
@@ -72,7 +73,8 @@ Exit: full fake-runner vertical slice демонстрируется из бра
 - [ ] T027 [US1] Workspace manager: read-only clone, immutable commit, size limit, clean operation directory, запрет LFS/submodules, no credentials in config. FR-012, FR-014.
 - [ ] T028 [US1] OpenCode sidecar health/session/prompt/status/SSE adapter. Begin ACK before single prompt, no blind resend on HTTP uncertainty. Tests fixture и live smoke. FR-003, FR-017.
 - [ ] T029 [US1] Output batching/truncation и final patch, including added text files; verify patch applies to clean base. Complete retry after lost ACK does not rerun model. FR-008, FR-009.
-- [ ] T030 [US3] Abort integration, unexpected permission/question fail-closed, OpenCode sidecar loss UNKNOWN, lease safety deadline. FR-010, FR-011, FR-013.
+- [ ] T030 [US3] Abort integration, OpenCode sidecar loss UNKNOWN, lease safety deadline; SSE permission channel loss fail-closed. FR-010, FR-011, FR-013.
+- [ ] T030a [US2] OpenCode server HITL bridge: ConfirmationRequired/Reply proto, durable OperationConfirmations, 5 min timeout→reject, cancel wins. FR-019.
 - [ ] T031 [US5] Harden sidecar: explicit permissions, trusted config, no sharing/plugins override, no runner/Git certs in OpenCode, allowlisted egress. Проверить repo-supplied config bypass; document pilot restrictions if gate fails. FR-012, FR-013.
 
 Exit: реальная модель возвращает применимый patch; Python process loss не маскируется как recovery.

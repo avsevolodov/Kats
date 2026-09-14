@@ -54,6 +54,17 @@ public static class BrowserStream
                             var accepted = await store.Cancel(owner, runId, m.GetProperty("commandId").GetGuid());
                             await Send(new { type = "ack", commandId = accepted.CommandId, ack = "PERSISTED" });
                         }
+                        else if (m.GetProperty("type").GetString() == "confirm")
+                        {
+                            Rules.Require(m.GetProperty("runId").GetGuid() == runId, "WRONG_RUN", 403);
+                            var answers = ReadAnswers(m);
+                            var accepted = await store.Confirm(owner, runId, new ConfirmRun(
+                                m.GetProperty("commandId").GetGuid(),
+                                m.GetProperty("requestId").GetString()!,
+                                m.GetProperty("decision").GetString()!,
+                                answers));
+                            await Send(new { type = "ack", commandId = accepted.CommandId, ack = "PERSISTED" });
+                        }
                         else await Send(new { type = "pong" });
                     }
                 }
@@ -89,5 +100,17 @@ public static class BrowserStream
         var request = $"{c.Request.Scheme}://{c.Request.Host}".TrimEnd('/');
         return origin.Equals(configured, StringComparison.OrdinalIgnoreCase)
             || origin.Equals(request, StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string[][]? ReadAnswers(JsonElement m)
+    {
+        if (!m.TryGetProperty("answers", out var answers) || answers.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            return null;
+        Rules.Require(answers.ValueKind == JsonValueKind.Array, "INVALID_ANSWERS", 400);
+        return answers.EnumerateArray().Select(row =>
+        {
+            Rules.Require(row.ValueKind == JsonValueKind.Array, "INVALID_ANSWERS", 400);
+            return row.EnumerateArray().Select(x => x.GetString() ?? "").ToArray();
+        }).ToArray();
     }
 }

@@ -27,31 +27,46 @@ public static class Rules
         Require(Encoding.UTF8.GetByteCount(request.Prompt) <= 16384, "PROMPT_TOO_LARGE", 413);
         Require(ValidBaseRef(request.BaseCommit), "INVALID_COMMIT", 400);
     }
-    public static Uri ValidateRepository(UpsertRepository request, IReadOnlyCollection<string> allowedHosts, bool requireCredential)
+    public static bool ValidBaseRef(string? value)
     {
-        Require(!string.IsNullOrWhiteSpace(request.DisplayName) && request.DisplayName.Trim().Length <= 200, "INVALID_DISPLAY_NAME", 400);
-        Require(request.AuthKind is "Anonymous" or "Pat", "INVALID_AUTH_KIND", 400);
-        Require(request.ProviderHint is "Generic" or "GitHub", "INVALID_PROVIDER", 400);
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        if (Regex.IsMatch(value, @"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z")) return true;
+        if (!Regex.IsMatch(value, @"\A[A-Za-z0-9][A-Za-z0-9._/-]{0,254}\z")) return false;
+        if (value.StartsWith('-') || value.StartsWith('/') || value.EndsWith('/') || value.EndsWith(".lock")) return false;
+        return !value.Contains("..") && !value.Contains("//") && !value.Contains("@{");
+    }
+    public static void Validate(UpsertRepository request, bool requireNewCredential = true)
+    {
+        ValidateRepository(request, null, requireNewCredential);
+    }
+    public static Uri ValidateRepository(UpsertRepository request, IReadOnlyList<string>? allowedHosts, bool requireCredential = true)
+    {
+        Require(!string.IsNullOrWhiteSpace(request.DisplayName) && request.DisplayName.Trim().Length <= 200, "INVALID_NAME", 400);
         Require(Uri.TryCreate(request.CloneUrl?.Trim(), UriKind.Absolute, out var url)
-            && url.Scheme == Uri.UriSchemeHttps
-            && string.IsNullOrEmpty(url.UserInfo)
-            && !string.IsNullOrEmpty(url.Host), "INVALID_CLONE_URL", 400);
-        Require(allowedHosts.Contains(url!.Host, StringComparer.OrdinalIgnoreCase), "REPOSITORY_HOST_NOT_ALLOWED", 400);
-        if (request.AuthKind == "Pat")
+            && url is not null && url.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(url.UserInfo), "INVALID_CLONE_URL", 400);
+        if (allowedHosts != null)
+            Require(allowedHosts.Contains(url!.Host, StringComparer.OrdinalIgnoreCase), "HOST_NOT_ALLOWED", 400);
+        var kind = (request.AuthKind ?? "").Trim();
+        Require(kind is "Anonymous" or "Pat", "INVALID_AUTH_KIND", 400);
+        if (kind == "Pat")
         {
-            var hasUser = !string.IsNullOrWhiteSpace(request.Username);
-            var hasPass = !string.IsNullOrWhiteSpace(request.Password);
-            Require(hasUser == hasPass, "CREDENTIAL_INCOMPLETE", 400);
-            Require(!requireCredential || (hasUser && hasPass), "CREDENTIAL_REQUIRED", 400);
-            if (hasUser)
-            {
-                var user = request.Username!;
-                var pass = request.Password!;
-                Require(user.Length <= 200 && pass.Length <= 4000, "CREDENTIAL_TOO_LARGE", 400);
-                Require(!user.Contains(':') && !pass.Contains('\n') && !pass.Contains('\r'), "INVALID_CREDENTIAL", 400);
-            }
+            if (requireCredential)
+                Require(!string.IsNullOrWhiteSpace(request.Password), "CREDENTIAL_REQUIRED", 400);
         }
-        else Require(string.IsNullOrEmpty(request.Username) && string.IsNullOrEmpty(request.Password), "ANONYMOUS_HAS_CREDENTIAL", 400);
-        return url;
+        else
+            Require(string.IsNullOrWhiteSpace(request.Password) && string.IsNullOrWhiteSpace(request.Username), "CREDENTIAL_NOT_ALLOWED", 400);
+        Require((request.ProviderHint ?? "").Length <= 32, "INVALID_PROVIDER", 400);
+        return url!;
+    }
+    public static void Validate(ConfirmRun request)
+    {
+        Require(request.CommandId != Guid.Empty, "INVALID_ID", 400);
+        Require(!string.IsNullOrWhiteSpace(request.RequestId) && request.RequestId.Length <= 200, "INVALID_REQUEST_ID", 400);
+        var decision = (request.Decision ?? "").Trim();
+        Require(decision is "once" or "always" or "reject" or "answer", "INVALID_DECISION", 400);
+        if (decision == "answer")
+            Require(request.Answers is { Length: > 0 }, "ANSWERS_REQUIRED", 400);
+        else
+            Require(request.Answers is null or { Length: 0 }, "ANSWERS_NOT_ALLOWED", 400);
     }
 }

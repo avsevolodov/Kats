@@ -409,6 +409,64 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/runs/{runId}/confirm:
+    post:
+      operationId: ConfirmRun
+      parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: X-CSRF-TOKEN
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmRun'
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandAccepted'
+        '404':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Problem details
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/runs/{runId}/events:
     get:
       operationId: GetRunEvents
@@ -727,6 +785,35 @@ components:
       additionalProperties: false
       required:
       - commandId
+    ConfirmRun:
+      type: object
+      properties:
+        commandId:
+          type: string
+          format: uuid
+        requestId:
+          type: string
+          minLength: 1
+          maxLength: 200
+        decision:
+          type: string
+          enum:
+          - once
+          - always
+          - reject
+          - answer
+        answers:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+          description: Required when decision=answer (OpenCode string[][])
+      additionalProperties: false
+      required:
+      - commandId
+      - requestId
+      - decision
     CommandAccepted:
       type: object
       properties:

@@ -1,0 +1,137 @@
+@page "/repositories"
+@inject HttpClient Http
+<main>
+    <header>
+        <span class="brand">AGENT PLATFORM</span>
+        <nav class="nav">
+            <a href="/">Задачи</a>
+            @if (isAdmin) { <a href="/agents">Агенты</a> }
+            @if (signedIn) { <a href="/logout">Выйти</a> } else { <a href="/login">Войти</a> }
+        </nav>
+    </header>
+    <h1>Репозитории</h1>
+    <p class="muted">Глобальный allowlist. Любой вошедший пользователь может добавлять и изменять записи.</p>
+    @if (error != null) { <p role="alert" class="error">@error</p> }
+    @if (!signedIn)
+    {
+        <p class="muted">Войдите, чтобы продолжить.</p>
+    }
+    else
+    {
+        <section>
+            <h2>@(editing is null ? "Добавить" : "Изменить")</h2>
+            <label>Название<input @bind="displayName" maxlength="200" /></label>
+            <label>Clone URL (HTTPS)<input @bind="cloneUrl" placeholder="https://github.com/org/repo.git" /></label>
+            <label>Провайдер<select @bind="providerHint"><option value="GitHub">GitHub</option><option value="Generic">Другой</option></select></label>
+            <label>Доступ<select @bind="authKind"><option value="Anonymous">Анонимный</option><option value="Pat">PAT / пароль</option></select></label>
+            @if (authKind == "Pat")
+            {
+                <label>Username<input @bind="username" placeholder="@(providerHint == "GitHub" ? "x-access-token" : "git")" autocomplete="off" /></label>
+                <label>@(editing?.HasCredential == true ? "Новый токен (оставьте пустым, чтобы сохранить)" : "Токен / пароль")<input @bind="password" type="password" autocomplete="new-password" /></label>
+            }
+            <button disabled="@busy" @onclick="Save">Сохранить</button>
+            @if (editing != null) { <button class="secondary" disabled="@busy" @onclick="CancelEdit">Отмена</button> }
+        </section>
+        <section>
+            <h2>Список</h2>
+            <button class="secondary" @onclick="Load" disabled="@busy">Обновить</button>
+            @if (items.Count == 0) { <p class="muted">Репозиториев пока нет.</p> }
+            @foreach (var repo in items)
+            {
+                <div class="run">
+                    <div>
+                        <strong>@repo.DisplayName</strong>
+                        <code>@repo.CloneUrl</code>
+                        <small>@repo.AuthKind · @repo.ProviderHint · @(repo.HasCredential ? "секрет задан" : "без секрета")</small>
+                    </div>
+                    <div class="actions">
+                        <button class="secondary" disabled="@busy" @onclick="() => Edit(repo)">Изменить</button>
+                        <button class="secondary" disabled="@busy" @onclick="() => Disable(repo.RepositoryId)">Отключить</button>
+                    </div>
+                </div>
+            }
+        </section>
+    }
+</main>
+@code {
+    record Token(string RequestToken);
+    List<RepositoryView> items = [];
+    RepositoryView? editing;
+    string displayName = "", cloneUrl = "", providerHint = "GitHub", authKind = "Anonymous", username = "", password = "";
+    string? error; bool busy, signedIn, isAdmin;
+    protected override async Task OnInitializedAsync() => await Load();
+    async Task Load()
+    {
+        try
+        {
+            using var reposResponse = await Http.GetAsync("api/v1/repositories");
+            if (reposResponse.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                signedIn = false; isAdmin = false; items = [];
+                error = "Войдите в систему.";
+                return;
+            }
+            reposResponse.EnsureSuccessStatusCode();
+            signedIn = true;
+            var me = await Http.GetFromJsonAsync<SecurityMe>("api/v1/security/me");
+            isAdmin = me?.IsAdmin == true;
+            await using var stream = await reposResponse.Content.ReadAsStreamAsync();
+            var list = await JsonSerializer.DeserializeAsync<JsonElement>(stream, Wire.Json);
+            items = list.GetProperty("items").Deserialize<List<RepositoryView>>(Wire.Json) ?? [];
+            error = null;
+        }
+        catch { error = "Не удалось загрузить репозитории."; }
+    }
+    void Edit(RepositoryView repo)
+    {
+        editing = repo;
+        displayName = repo.DisplayName;
+        cloneUrl = repo.CloneUrl;
+        providerHint = string.IsNullOrEmpty(repo.ProviderHint) ? "GitHub" : repo.ProviderHint;
+        authKind = repo.AuthKind;
+        username = providerHint == "GitHub" ? "x-access-token" : "";
+        password = "";
+    }
+    void CancelEdit()
+    {
+        editing = null; displayName = ""; cloneUrl = ""; providerHint = "GitHub"; authKind = "Anonymous"; username = ""; password = "";
+    }
+    async Task Save()
+    {
+        busy = true; error = null;
+        try
+        {
+            if (providerHint == "GitHub" && authKind == "Pat" && string.IsNullOrWhiteSpace(username)) username = "x-access-token";
+            var body = new UpsertRepository(displayName.Trim(), cloneUrl.Trim(), authKind, providerHint,
+                authKind == "Pat" ? username.Trim() : null,
+                authKind == "Pat" && !string.IsNullOrEmpty(password) ? password : null);
+            var t = await Http.GetFromJsonAsync<Token>("api/v1/security/antiforgery");
+            using var request = new HttpRequestMessage(editing is null ? HttpMethod.Post : HttpMethod.Put,
+                editing is null ? "api/v1/repositories" : $"api/v1/repositories/{editing.RepositoryId}")
+            { Content = JsonContent.Create(body, options: Wire.Json) };
+            request.Headers.Add("X-CSRF-TOKEN", t!.RequestToken);
+            using var result = await Http.SendAsync(request);
+            if (!result.IsSuccessStatusCode) { error = $"Сохранение отклонено ({(int)result.StatusCode})."; return; }
+            CancelEdit();
+            await Load();
+        }
+        catch { error = "Не удалось сохранить репозиторий."; }
+        finally { busy = false; }
+    }
+    async Task Disable(Guid id)
+    {
+        busy = true; error = null;
+        try
+        {
+            var t = await Http.GetFromJsonAsync<Token>("api/v1/security/antiforgery");
+            using var request = new HttpRequestMessage(HttpMethod.Delete, $"api/v1/repositories/{id}");
+            request.Headers.Add("X-CSRF-TOKEN", t!.RequestToken);
+            using var result = await Http.SendAsync(request);
+            if (!result.IsSuccessStatusCode) { error = $"Отключение отклонено ({(int)result.StatusCode})."; return; }
+            if (editing?.RepositoryId == id) CancelEdit();
+            await Load();
+        }
+        catch { error = "Не удалось отключить репозиторий."; }
+        finally { busy = false; }
+    }
+}

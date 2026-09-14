@@ -9,7 +9,18 @@ from pathlib import Path
 import signal
 import uuid
 from .core import PromptGuard, RunnerError
-from .presentation import format_cli_event
+from .logutil import LOG
+from .presentation import format_cli_event, format_runner
+
+_VERSION_BYTES = 4096
+_DIAG_SNIP = 512
+VERSION_TIMEOUT_S = 20  # product default; tests may monkeypatch
+
+
+def _diag_snip(data: bytes) -> str:
+    """Bounded one-line snippet for logs; never treat as secret channel."""
+    text = data[:_DIAG_SNIP].decode("utf-8", errors="replace")
+    return " ".join(text.split())
 
 
 class OpenCodeCli:
@@ -36,25 +47,56 @@ class OpenCodeCli:
     async def health(self):
         if os.name != "posix":
             raise RunnerError("CLI_REQUIRES_POSIX_OR_WSL")
+        LOG.info("OpenCode CLI version check starting bin=%s timeout=%ss",
+                 self.executable, VERSION_TIMEOUT_S)
         try:
-            p = await asyncio.create_subprocess_exec(self.executable, "--version",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-                env=self.environment(), limit=4096)
+            p = await asyncio.create_subprocess_exec(
+                self.executable, "--version",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                env=self.environment(), limit=_VERSION_BYTES)
         except OSError:
+            LOG.error("OpenCode CLI not found bin=%s", self.executable)
             raise RunnerError("OPENCODE_CLI_NOT_FOUND") from None
+        out = err = b""
         try:
-            async with asyncio.timeout(60):
-                version = await p.stdout.read(4097)
-                await p.wait()
+            async with asyncio.timeout(VERSION_TIMEOUT_S):
+                out, err = await p.communicate()
         except TimeoutError:
-            p.kill(); await p.wait()
+            p.kill()
+            try:
+                out, err = await asyncio.wait_for(p.communicate(), 1)
+            except TimeoutError:
+                try:
+                    await asyncio.wait_for(p.wait(), 1)
+                except TimeoutError:
+                    pass
+                out, err = out or b"", err or b""
+            LOG.error(
+                "OpenCode CLI version timeout bin=%s stdout=%r stderr=%r",
+                self.executable, _diag_snip(out or b""), _diag_snip(err or b""))
             raise RunnerError("OPENCODE_CLI_VERSION_TIMEOUT") from None
-        if p.returncode or len(version) > 4096:
+        out = out or b""
+        err = err or b""
+        if p.returncode or len(out) > _VERSION_BYTES or len(err) > _VERSION_BYTES:
+            LOG.error(
+                "OpenCode CLI version failed bin=%s rc=%s stdout=%r stderr=%r",
+                self.executable, p.returncode, _diag_snip(out), _diag_snip(err))
+            raise RunnerError("OPENCODE_CLI_VERSION_FAILED")
+        # Some CLIs print --version to stderr; prefer stdout when present.
+        stdout_text = out.decode("utf-8", errors="replace").strip()
+        stderr_text = err.decode("utf-8", errors="replace").strip()
+        self.version = stdout_text or stderr_text
+        if not self.version:
+            LOG.error("OpenCode CLI version empty bin=%s", self.executable)
             raise RunnerError("OPENCODE_CLI_VERSION_FAILED")
         self.version = version.decode("utf-8", errors="replace").strip()
         expected = os.environ.get("OPENCODE_CLI_VERSION", "1.2.27")
         if self.version != expected:
-            raise RunnerError(f"OPENCODE_CLI_VERSION_MISMATCH: got {self.version!r}, expected {expected!r}")
+            LOG.error(
+                "OpenCode CLI version mismatch got=%r expected=%r bin=%s",
+                self.version, expected, self.executable)
+            raise RunnerError("OPENCODE_CLI_VERSION_MISMATCH")
+        LOG.info("OpenCode CLI version ok %s bin=%s", self.version, self.executable)
 
     async def create(self):
         self.guard = PromptGuard()
@@ -80,6 +122,7 @@ class OpenCodeCli:
         except OSError:
             raise RunnerError("OPENCODE_CLI_START_FAILED") from None
         p = self.process
+        await emit(format_runner("CLI запущен"))
 
         async def collect():
             p.stdin.write(prompt.encode("utf-8"))

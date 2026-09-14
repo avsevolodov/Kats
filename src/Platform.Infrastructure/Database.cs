@@ -9,7 +9,7 @@ public sealed class RepositoryRow
     public string CloneUrl { get; set; } = "";
     public string CredentialRef { get; set; } = "";
     public string AuthKind { get; set; } = "Anonymous";
-    public string ProviderHint { get; set; } = "Generic";
+    public string ProviderHint { get; set; } = "";
     public byte[]? CredentialCipher { get; set; }
     public bool Enabled { get; set; } = true;
 }
@@ -97,6 +97,20 @@ public sealed class RunnerSessionRow
     public string Version { get; set; } = "";
     public DateTime LastSeenAt { get; set; }
 }
+public sealed class OperationConfirmationRow
+{
+    public Guid Id { get; set; }
+    public Guid OperationId { get; set; }
+    public string RequestId { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public string PayloadJson { get; set; } = "{}";
+    public string Status { get; set; } = "PENDING";
+    public string? Decision { get; set; }
+    public string? AnswersJson { get; set; }
+    public Guid? CommandId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? AnsweredAt { get; set; }
+}
 public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<PermissionRow> Permissions => Set<PermissionRow>();
@@ -109,6 +123,7 @@ public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext
     public DbSet<PublicationRow> Publications => Set<PublicationRow>();
     public DbSet<ArtifactRow> Artifacts => Set<ArtifactRow>();
     public DbSet<RunnerSessionRow> RunnerSessions => Set<RunnerSessionRow>();
+    public DbSet<OperationConfirmationRow> OperationConfirmations => Set<OperationConfirmationRow>();
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; } = null!;
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -140,7 +155,13 @@ public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext
         b.Entity<RunnerSessionRow>().Property(x => x.WorkloadSubject).HasMaxLength(200);
         b.Entity<RunnerSessionRow>().Property(x => x.Version).HasMaxLength(200);
         b.Entity<RunnerSessionRow>().HasIndex(x => x.LastSeenAt);
-        // SQL FKs exist; declare them so SaveChanges inserts parents before dependents.
+        b.Entity<OperationConfirmationRow>().HasKey(x => x.Id);
+        b.Entity<OperationConfirmationRow>().Property(x => x.RequestId).HasMaxLength(200);
+        b.Entity<OperationConfirmationRow>().Property(x => x.Kind).HasMaxLength(32);
+        b.Entity<OperationConfirmationRow>().Property(x => x.Status).HasMaxLength(32);
+        b.Entity<OperationConfirmationRow>().Property(x => x.Decision).HasMaxLength(32);
+        b.Entity<OperationConfirmationRow>().HasIndex(x => new { x.OperationId, x.RequestId }).IsUnique();
+        b.Entity<OperationConfirmationRow>().HasIndex(x => new { x.OperationId, x.Status });
         b.Entity<RunRow>().HasOne<RepositoryRow>().WithMany().HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CommandRow>().HasOne<RunRow>().WithMany().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<OperationRow>().HasOne<RunRow>().WithMany().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.Restrict);
@@ -149,6 +170,7 @@ public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext
         b.Entity<ArtifactRow>().HasOne<RunRow>().WithMany().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<ArtifactRow>().HasOne<OperationRow>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<ReceiptRow>().HasOne<OperationRow>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<OperationConfirmationRow>().HasOne<OperationRow>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
         foreach (var e in b.Model.GetEntityTypes())
             foreach (var p in e.GetProperties().Where(x => x.ClrType == typeof(DateTime) || x.ClrType == typeof(DateTime?))) p.SetColumnType("datetime2");
     }
