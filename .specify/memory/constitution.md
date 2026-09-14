@@ -33,3 +33,15 @@ Owner authorization на всех чтениях и WebSocket, workload auth н�
 ## VIII. Управление изменениями
 
 MVP spec конкретизирует и сужает общий концепт v0.2. Изменение базы Temporal, режима восстановления, внешних side effects или состава инфраструктуры требует обновления ADR. Названия методов уточняются по pinned SDK, но семантика acceptance сохраняется.
+
+## IX. Amendment 1.1.0 — Conversational Orchestrator (2026-09-14)
+
+Основание: пользователь согласовал Chat Agent с самостоятельным выбором репозитория и вызовами tools/дочерних agents через шину. Traceability: specs/002-conversational-orchestrator/spec.md FR-201–217 и research.md ADR-201–208.
+
+Для feature 002 принцип I дополняется TaskWorkflow как владельцем task lifecycle, LangGraph как владельцем reasoning checkpoints и MSSQL как владельцем invocation receipts. Conversation не является бесконечным workflow. API не завершает Task самостоятельно.
+
+Принцип IV допускает отдельный Python Chat Agent и custom checkpoint adapter через C# persistence service в MSSQL. Новая прикладная БД не вводится.
+
+Принцип V для 002 расширяется диалогами, registered tool/Coding invocations, clarification/approval и восстановлением Chat Agent на границах checkpoint. Push/PR/CI, arbitrary plugins, multi-repo writing и восстановление потерянного OpenCode workspace остаются вне scope.
+
+Принципы II, III, VI и VII сохраняются; stable dispatch intents и fencing распространяют их на Chat Agent. Повтор чистого model шага допустим только по правилам ADR-204, без повторного внешнего effect. Спецификация 001 остаётся baseline, amendment не объявляет 002 реализованным.

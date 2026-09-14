@@ -70,3 +70,7 @@ Feature branch: `001-temporal-mvp`. Следующий шаг harness — ана
 ## Ограничение готовности
 
 Документы и контракты проверены структурно. Приложение, gRPC code generation, Helm deployment и live OpenCode в рамках подготовки пакета не запускались. Точные released-версии зависимостей фиксирует агент в T001–T004 после smoke tests; использование `latest` запрещено.
+
+## Следующий этап: диалоговый оркестратор
+
+Подготовлена [спецификация 002](specs/002-conversational-orchestrator/README.md): чат → выбор контекста и репозитория → вызовы tools/Coding Agent через шину → ответ и patch. [План разработки](specs/002-conversational-orchestrator/plan.md), [backlog](specs/002-conversational-orchestrator/tasks.md). Статус: документация; feature ещё не реализован. Ограничения выше относятся к baseline 001.

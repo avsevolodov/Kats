@@ -252,3 +252,9 @@ smoke и browser E2E не выполнялись в этой среде. На с
 OpenAPI CRUD + SecurityMe, realm admin/roles/post.logout, `test_workspace_credentials.py`,
 DEV007 и data-model. Runtime C#/UI/runner для repositories в основном уже был на месте.
 На существующей БД при ошибке Invalid column name выполните `sql/002-repository-credentials.sql`.
+
+## Feature 002 — документация и план (2026-09-14)
+
+Подготовлен specs/002-conversational-orchestrator: требования, архитектура/ADR, модель данных, workflow/recovery, contracts, UX, план, T001–T024 и A01–A18. Runtime не изменён; все implementation tasks и live acceptance пока не выполнены.
+
+Baseline: ba62859117a4bf3d2ddc1c96b9c09e0d3623ca57. Зафиксированы расхождения HITL docs/runtime и SQL 004 migration naming; T002 должен проверить их на реальном стенде. Compatibility LangGraph/checkpointer/model — открытые gates T003/T004. Документационный пакет не подтверждает утверждения старых status записей о текущей сборке.
