@@ -8,20 +8,59 @@ API запускает hosted Blazor WASM: отдельный UI-процесс 
 
 Для нового разработчика: [тестовый стенд WSL2](docs/developer-test-environment.md).
 `uv run --locked scripts/test_env.py up` поднимает MSSQL, Temporal и Keycloak, создаёт БД
-и пользователей; далее `run api`, `run worker`, `run runner` в отдельных терминалах.
-Первый тест работает без OpenCode/LLM; затем можно включить CLI backend.
+и пользователей; далее процессы ниже в отдельных терминалах.
+Первый тест coding Run работает без OpenCode/LLM; затем можно включить CLI backend.
 
 Для локально установленного OpenCode без `serve` выберите в `.local/settings.json`
 `runner.backend: "cli"` и запускайте `uv run --locked scripts/dev.py run runner`.
-Wrapper сам вызывает CLI; подробности и ограничения — в инструкции ниже.
+Wrapper сам вызывает CLI; подробности и ограничения — в [local-development.md](docs/local-development.md).
 
 Добавлены [Docker Compose и локальный запуск](docs/local-development.md):
 `uv run --locked scripts/dev.py init`, настройка `.local/settings.json`, затем
 `uv run --locked scripts/dev.py render compose` и
 `docker compose --env-file .local/compose.env up --build -d`.
-Native: `uv run --locked scripts/dev.py run api|worker|opencode|runner` (по одному процессу в терминале).
-Требуются MSSQL, Temporal, OIDC и настроенный OpenCode; UI — https://localhost:8443.
-Актуальные ограничения проверки: [implementation-status.md](docs/implementation-status.md).
+
+**Native (по одному процессу в терминале):**
+
+| # | Процесс | Команда / заметка |
+| --- | --- | --- |
+| 1 | API + Blazor | `uv run --locked scripts/dev.py run api` — UI `https://localhost:8443/` (чат), `/runs` |
+| 2 | Worker | `uv run --locked scripts/dev.py run worker` — RunWorkflow + TaskWorkflow |
+| 3 | OpenCode | `uv run --locked scripts/dev.py run opencode` — для coding / legacy Run |
+| 4 | OpenCode runner | `uv run --locked scripts/dev.py run runner` — claim **Run**, не чат |
+| 5 | **Chat Agent** | `uv run --locked scripts/dev.py run chat-agent` — claim **`chat.root`**; без него диалог после `START_TASK` не обрабатывается |
+
+Требуются MSSQL (схема до `sql/007`), Temporal, OIDC; для coding — OpenCode.  
+Актуальный статус: [implementation-status.md](docs/implementation-status.md).
+
+### Chat Agent (обязателен для диалога `/`)
+
+OpenCode runner **не** видит задачи чата. После `START_TASK` в Worker нужен отдельный Chat Agent
+(сертификаты те же, что у runner — `dev.py` подставляет `.local/certs/runner/*`):
+
+```bash
+# предпочтительно (WSL: берёт local.platformGrpc, например 172.x:8081, снимает HTTP_PROXY)
+CHAT_AGENT_MODE=fake uv run --locked scripts/dev.py run chat-agent
+CHAT_AGENT_MODE=live uv run --locked scripts/dev.py run chat-agent
+
+# прямой запуск: читает .local/settings.json → local.platformGrpc, grpc.enable_http_proxy=0
+uv run --locked chat-agent --mode live
+```
+
+В `.local/settings.json` для WSL+API на Windows и для LLM Chat Agent:
+
+```json
+"local": { "platformGrpc": "172.17.112.1:8081" },
+"chatAgent": {
+  "provider": "kaspersky_llm",
+  "model": "qwen3.6-35b-a3b",
+  "baseUrl": "https://llm.example.internal/v1"
+}
+```
+
+API key **не** в JSON: `CHAT_AGENT_API_KEY` или файл `.local/chat-agent/api-key`. Без `chatAgent` / key при `--mode live` задача завершится `FAILED` (`MODEL_NOT_CONFIGURED`), без fake «Уточните цель…».
+
+Не используйте `localhost:8081` из WSL NAT — это Linux, не Windows. Корпоративный `HTTP_PROXY` для gRPC снимается автоматически.
 
 Версия пакета: 1.0 • 12.09.2026 • Статус: спецификация для реализации, не готовое приложение.
 
@@ -73,4 +112,6 @@ Feature branch: `001-temporal-mvp`. Следующий шаг harness — ана
 
 ## Следующий этап: диалоговый оркестратор
 
-Подготовлена [спецификация 002](specs/002-conversational-orchestrator/README.md): чат → выбор контекста и репозитория → вызовы tools/Coding Agent через шину → ответ и patch. [План разработки](specs/002-conversational-orchestrator/plan.md), [backlog](specs/002-conversational-orchestrator/tasks.md). Статус: документация; feature ещё не реализован. Ограничения выше относятся к baseline 001.
+[Спецификация 002](specs/002-conversational-orchestrator/README.md): чат → контекст/репозиторий → шина → Coding Agent → ответ. Code/unit в дереве; live A01–A18 открыты — [Progress Map](docs/implementation-status.md).
+
+**Локально:** SQL `005`–`007` → API + Worker → **Chat Agent (терминал 5)** → UI `/`. Runner/OpenCode нужны для `coding.execute`, не для claim чата. См. раздел «Chat Agent» выше и [local-development.md](docs/local-development.md) / [chat-agent-ops.md](docs/chat-agent-ops.md).

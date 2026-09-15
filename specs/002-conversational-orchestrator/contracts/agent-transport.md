@@ -37,7 +37,8 @@ UUID canonical lower-case; UTC epoch milliseconds; int64 в browser JSON — dec
 | Agent → Gateway | CreateInteraction(id, kind, payload, expiry) | Durable вопрос/approval |
 | Agent → Gateway | Suspend(checkpointId, dependencyIds) | Только после durable checkpoint; race-safe wait |
 | Gateway → Agent | Wakeup / CancelRequested | Advisory delivery; authoritative state в SQL |
-| Agent → Gateway | Complete(result) | Durable structured root result |
+| Agent → Gateway | Complete(result, error_code?, safe_message?) | Durable structured root result. On FAILED/NEEDS_ATTENTION set `error_code` (e.g. MODEL_NOT_CONFIGURED, MODEL_UNAVAILABLE) and UI-safe `safe_message` (no secrets/prompts). Gateway emits ConversationEvent `AgentError` + terminal TaskStatusChanged. |
+
 | Gateway → Agent | AckPersisted / Error | Ack только после commit |
 
 User RespondInteraction идёт через REST. Ответ доставляется execution после wakeup/read; OpenCode reply — через legacy bridge.
@@ -66,7 +67,8 @@ Application frame ≤256 KiB, preview batch ≤8 KiB; крупные artifacts �
 INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED, CAPABILITY_UNAVAILABLE,
 CONTRACT_VERSION_UNSUPPORTED, CONFLICT, FENCED, LEASE_EXPIRED, EXPECTED_SEQUENCE,
 BUDGET_EXCEEDED, RESULT_TOO_LARGE, HISTORY_EXPIRED, UNAVAILABLE.
-retryable означает повтор безопасной доставки/чтения. Не означает разрешение повторить внешний effect.
+Application Complete may carry MODEL_NOT_CONFIGURED / MODEL_UNAVAILABLE (and similar) in `error_code` when the Chat Agent cannot run an LLM turn; these are not ProtocolError frames.
+retryable means повтор безопасной доставки/чтения. Не означает разрешение повторить внешний effect.
 
 ## Result
 

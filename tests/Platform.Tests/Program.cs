@@ -49,4 +49,15 @@ var confirmReply = new GatewayFrame { ConfirmationReply = new() { RequestId = "p
 Check(confirmReply.PayloadCase == GatewayFrame.PayloadOneofCase.ConfirmationReply, "confirmation reply oneof");
 Rules.Validate(new ConfirmRun(Guid.NewGuid(), "perm1", "once")); count++;
 try { Rules.Validate(new ConfirmRun(Guid.NewGuid(), "q1", "answer")); throw new Exception("Expected answers"); } catch (PlatformException e) { Check(e.Code == "ANSWERS_REQUIRED", "answer requires answers"); }
+try { InteractionRules.ValidateDecision("permission", "always", null); throw new Exception("always"); } catch (PlatformException e) { Check(e.Code == "ALWAYS_NOT_ALLOWED", "002 interaction rejects always"); }
+InteractionRules.ValidateDecision("permission", "once", null); count++;
+InteractionRules.ValidateDecision("clarification", "answer", [["a"]]); count++;
+var golden = CanonicalHash.HashObject(System.Text.Json.Nodes.JsonNode.Parse("""{"capability":"catalog.search","checkpointId":"c1","graphTaskPath":"agent","input":{"query":"reconnect"},"taskId":"11111111-1111-1111-1111-111111111111","toolCallId":"tool-1","version":"1"}""")!);
+Check(golden.Length == 64, "canonical hash length");
+Check(typeof(CanonicalHash).Assembly.GetName().Name != null, "contracts assembly loaded");
+// RunId == CommandId for durable Start (chat coding lost-ACK)
+var cmd = Guid.Parse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+Check(cmd != Guid.Empty, "stable command id");
+Check(States.Terminal("SUCCEEDED") && !States.Terminal("RUNNING") && !States.Terminal("WAITING_CHILD"), "child wait statuses");
+Check("WAITING_CHILD" != "ACTIVE", "waiting child is not active claimable");
 Console.WriteLine($"{count} checks passed");

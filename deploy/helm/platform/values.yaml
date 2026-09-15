@@ -1,10 +1,12 @@
 apiReplicas: 2
 workerReplicas: 2
 runnerReplicas: 2
+chatAgentReplicas: 1
 images:
   api: registry.example.invalid/agent-platform-api:0.1.0
   worker: registry.example.invalid/agent-platform-worker:0.1.0
   runner: registry.example.invalid/agent-platform-runner:0.1.0
+  chatAgent: registry.example.invalid/agent-platform-chat:0.1.0
   opencode: registry.example.invalid/opencode:approved-version
 imagePullSecrets: []
 secrets:
@@ -16,6 +18,11 @@ secrets:
   dataProtection: platform-dataprotection
   opencode: opencode-provider
   repository: repository-read
+  chatModel: chat-model
+chat:
+  enabled: false
+  mode: fake
+  model: configured-internal-model
 temporal:
   endpoint: temporal.example.internal:7233
   namespace: agent-platform

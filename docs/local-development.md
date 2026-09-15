@@ -68,13 +68,23 @@ API слушает `ListenAnyIP(8081)`; в NAT при необходимости
 Windows Firewall. Корпоративный `HTTP_PROXY` для runner снимается: иначе gRPC
 уходит на proxy и получает 502.
 
-Выполните `sql/001-initial.sql` в выбранной БД через SSMS/sqlcmd до запуска API/worker.
-Если БД уже была создана до полей credentials, дополнительно выполните
-`sql/002-repository-credentials.sql` (идемпотентно добавляет AuthKind/ProviderHint/CredentialCipher).
-Для списка подключённых агентов выполните `sql/003-runner-sessions.sql` (таблица RunnerSessions).
-Учётная запись приложения должна иметь права на чтение/изменение таблиц; schema setup
-выполняется отдельно пользователем с DDL правами. Скрипт создания таблиц повторяемый.
-Добавьте разрешённый репозиторий (используйте собственные URL и ID):
+Выполните SQL-скрипты в выбранной БД через SSMS/sqlcmd **до** запуска API/Worker.
+Порядок важен; скрипты идемпотентны (`IF OBJECT_ID … IS NULL`). Не выбирайте миграцию только по числовому префиксу: есть **два** файла `004-*`.
+
+| Порядок | Файл | Зачем |
+| --- | --- | --- |
+| 1 | `sql/001-initial.sql` | Базовая схема Runs/Repositories/… |
+| 2 | `sql/002-repository-credentials.sql` | AuthKind/ProviderHint/CredentialCipher (если БД старше credentials) |
+| 3 | `sql/003-runner-sessions.sql` | RunnerSessions |
+| 4a | `sql/004-operation-confirmations.sql` | HITL Once/Always/Reject для OpenCode Run |
+| 4b | `sql/004-permissions.sql` | Legacy Permissions (не путать с 4a) |
+| **5** | `sql/005-graph-checkpoints.sql` | **002** checkpointer |
+| **6** | `sql/006-conversations-tasks.sql` | **002** Conversations, AgentTasks, **ConversationCommands**, Messages… |
+| **7** | `sql/007-invocations-interactions.sql` | **002** Invocations, DispatchIntents, Interactions… |
+
+Без **005–007** Worker пишет `Invalid object name 'ConversationCommands'` / chat dispatcher SqlException, а `/api/v2` не сможет создавать диалоги.
+
+Учётная запись приложения — DML на таблицах; DDL — отдельно. Добавьте разрешённый репозиторий (свои URL и ID):
 
 ```sql
 INSERT INTO dbo.Repositories (Id, DisplayName, CloneUrl, CredentialRef, Enabled)
@@ -187,14 +197,17 @@ HITL confirmation (permission/question → UI Once/Always/Reject) работае
 launcher читает settings и передаёт только его конфигурацию; source env-файлов не нужен.
 
 ```bash
-# Терминал 1: API + Blazor
+# Терминал 1: API + Blazor (чат `/` и диагностика Run `/runs`)
 uv run --locked scripts/dev.py run api
-# Терминал 2: Temporal worker
+# Терминал 2: Temporal worker (RunWorkflow + TaskWorkflow + chat inbox)
 uv run --locked scripts/dev.py run worker
-# Терминал 3: OpenCode, loopback:4096
+# Терминал 3: OpenCode, loopback:4096 (нужен для coding.execute / legacy Run)
 uv run --locked scripts/dev.py run opencode
-# Терминал 4: Python runner
+# Терминал 4: Python OpenCode runner
 uv run --locked scripts/dev.py run runner
+# Терминал 5 (feature 002): Chat Agent — claim chat.root (не OpenCode runner)
+CHAT_AGENT_MODE=fake uv run --locked scripts/dev.py run chat-agent
+# live: CHAT_AGENT_MODE=live uv run --locked scripts/dev.py run chat-agent
 ```
 
 Остановка — Ctrl+C в каждом терминале. Не запускайте native и Compose одновременно:
@@ -203,6 +216,19 @@ uv run --locked scripts/dev.py run runner
 как literal environment (не исполнять через shell). Native рабочая директория
 OpenCode теперь совпадает с `<repo>/.local/workspace/current`.
 
+### Feature 002: диалог
+
+После SQL **005–007**, API и Worker:
+
+1. UI по умолчанию — **Диалог** (`https://localhost:8443/`). Legacy Run — `/runs`.
+2. Chat Agent (терминал 5) с тем же классом mTLS, что runner (`RUNNER_CA` / cert / key, `PLATFORM_GRPC`).
+3. Потоки: Run WS — только `GET/CONNECT /api/v1/stream` (один Map в API); чат — `/api/v2/stream`.
+4. Без Chat Agent сообщения создают Task в inbox, но `chat.root` никто не claim’ит.
+5. Coding path: agent → `coding.execute` → существующий Run/OpenCode.
+6. Live LLM: секция `chatAgent` (`provider`/`model`/`baseUrl`) + `CHAT_AGENT_API_KEY` (или `.local/chat-agent/api-key`). Без конфига — `Complete(FAILED, MODEL_NOT_CONFIGURED)`, не recorded-fallback.
+
+Подробности: [chat-agent-ops.md](chat-agent-ops.md), статус — [implementation-status.md](implementation-status.md) (**002 Progress Map**).
+
 ## Проверка и границы
 
 ```bash
@@ -210,10 +236,21 @@ curl --cacert .local/certs/ca.crt https://localhost:8443/health/live
 curl --cacert .local/certs/ca.crt https://localhost:8443/health/ready
 ```
 
-Затем `/login` → создать Run → preview → summary/patch. Повторите Cancel и reconnect.
+Затем `/login` → диалог (002) и/или `/runs` → Run → preview → summary/patch. Повторите Cancel и reconnect.
 `runner.mode=fake` позволяет проверить платформенный путь без модели; результат явно
 обозначен fake. В текущем Compose OpenCode service всё равно запускается, поэтому
 для fake без image используйте native API/worker/runner (терминал OpenCode пропустите).
+
+### Типичные ошибки запуска
+
+| Симптом | Причина | Что сделать |
+| --- | --- | --- |
+| `Invalid object name 'ConversationCommands'` | Нет SQL 006 (и обычно 005–007) | Применить `sql/005`→`007` |
+| `AmbiguousMatchException` на `/api/v1/stream` | Два Map на один путь | В актуальном коде один `app.Map("/api/v1/stream")`; пересоберите/перезапустите API |
+| Chat dispatcher SqlException в цикле | То же, нет chat-таблиц | SQL 005–007, затем Worker |
+| Диалог пустой / task висит | Нет Chat Agent или lease | Запустить chat-agent; проверить gRPC `:8081` и thumbprint |
+| Task FAILED / `MODEL_NOT_CONFIGURED` в UI | Нет `chatAgent` или API key | Заполнить `chatAgent` в settings + `CHAT_AGENT_API_KEY`; `--mode live` не использует fake fallback |
+| Coding не стартует | Нет runner/OpenCode или repo ACL | Терминалы 3–4; репозиторий в ACL/`Repositories` |
 
 Потеря runner даёт UNKNOWN/NEEDS_ATTENTION. Сохранённый dev workspace не обеспечивает
 checkpoint/recovery. Если обнаружены leftover sessions, завершите активные Run и

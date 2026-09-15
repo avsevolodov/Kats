@@ -4,4 +4,5 @@
 <PackageReference Include="Grpc.Core.Api" />
 <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
 <Protobuf Include="../../contracts/runner.proto" GrpcServices="Both" />
+<Protobuf Include="../../contracts/agent.proto" GrpcServices="Both" />
 </ItemGroup></Project>

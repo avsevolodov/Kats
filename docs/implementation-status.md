@@ -255,6 +255,174 @@ DEV007 и data-model. Runtime C#/UI/runner для repositories в основно
 
 ## Feature 002 — документация и план (2026-09-14)
 
-Подготовлен specs/002-conversational-orchestrator: требования, архитектура/ADR, модель данных, workflow/recovery, contracts, UX, план, T001–T024 и A01–A18. Runtime не изменён; все implementation tasks и live acceptance пока не выполнены.
+Подготовлен specs/002-conversational-orchestrator: требования, архитектура/ADR, модель данных, workflow/recovery, contracts, UX, план, T001–T024 и A01–A18. На дату записи runtime ещё не был в дереве.
+
+**Актуализация 2026-09-15:** code/unit реализация в дереве; см. **002 Progress Map** ниже. Live A01–A18 по-прежнему NOT RUN.
 
 Baseline: ba62859117a4bf3d2ddc1c96b9c09e0d3623ca57. Зафиксированы расхождения HITL docs/runtime и SQL 004 migration naming; T002 должен проверить их на реальном стенде. Compatibility LangGraph/checkpointer/model — открытые gates T003/T004. Документационный пакет не подтверждает утверждения старых status записей о текущей сборке.
+
+## Feature 002 — T001 baseline audit (2026-09-15)
+
+Workspace ref: **no `.git` / `git` not on PATH** in agent environment; cannot run `git diff ba628591…`. Package baseline SHA remains `ba62859117a4bf3d2ddc1c96b9c09e0d3623ca57` from README. Comparison is filesystem vs documented package assumptions.
+
+### Diff scope vs package expectations
+
+| Area | Finding |
+| --- | --- |
+| Conversation / Task / agent.v1 / chat_agent | Absent in `src/` and `agents/` — 002 runtime not started |
+| Models / RunWorkflow | Still single coding Run only (`Models.cs`, `RunWorkflow.cs`) |
+| SQL migrations | Both `sql/004-permissions.sql` and `sql/004-operation-confirmations.sql` present; next additive must use unique `005+` names |
+| Live HITL HTTP | `POST /api/v1/runs/{id}/confirm` in `Program.cs`; no `/permissions` routes mapped |
+| Legacy Permissions store | `Permissions.cs` + `PermissionRow` + `sql/004-permissions.sql` exist; UI `Run.razor` still polls `api/v1/runs/{id}/permissions` (orphan vs Program) |
+| Canonical OpenCode HITL | `OperationConfirmations` + runner `ConfirmationRequired`/`ConfirmationReply`; backends `server`/`cli` (`OPENCODE_BACKEND`); `LocalOpenCode` present |
+| UI Always | Baseline Run panel still offers Always; 002 Interaction contract excludes Always (ADR-206) |
+| User/001 restores to preserve | HITL confirm path, timeline/OutputBatch, repositories/PAT/OIDC, WSL gRPC, stream Map/CONNECT, MapStaticAssets, WasmEnableHotReload=false — do not overwrite |
+
+### Evidence
+
+- Commands: filesystem glob/grep of `src/`, `sql/`, `contracts/runner.proto`, `agents/opencode_runner/main.py`; uv at `C:\Program Files\uv\uv.exe` → 0.12.13
+- Outcome: T001 discrepancies recorded; FR-215 baseline Run path intact; no 002 tables/code yet
+- Remaining: git SHA delta when repo available; live SQL/Temporal/browser gates open
+
+### Policy
+
+Do not rewrite 001 restore/correction status sections above for green tests. Subsequent 002 tasks append evidence here and flip checkboxes in `specs/002-conversational-orchestrator/tasks.md` only with acceptance evidence.
+
+## Feature 002 — implementation (2026-09-15)
+
+### Done (code + unit/protocol)
+
+- T001 baseline audit recorded (no `.git` in agent env).
+- T002 canonical HITL = OperationConfirmations + `/confirm`; Interaction v2 rejects Always; `tests/runner/test_hitl_bridge_002.py`.
+- T003 `agents/chat_agent` + pins: deepagents 0.7.12, langgraph 1.2.11, langchain-core 1.6.3 via `uv.lock`; harness disables shell/delegation; uv `C:\Program Files\uv\uv.exe` 0.12.13.
+- T004–T014 checkpointer codec `kats-checkpoint-v1`, SQL 005–007, C# ChatStore/entities, internal checkpoint HTTP API.
+- T005–T013 Conversation/Task/Invocation/DispatchIntent, `/api/v2` chat REST, `contracts/agent.proto`, TaskWorkflow (no LLM), CapabilityHandlers, coding.execute → stable RunId + honest `not_run`.
+- T010/T020 default UI `Conversations.razor` at `/`; legacy Runs at `/runs`.
+- T015–T019 harness/bus tools, Interaction responses, event cursor, dispositions, follow-up validators.
+- T021 eval dataset (no fabricated passed checks); T022 unit crash semantics; T023 helm chat-agent + ops docs + `scripts/run_chat_agent.ps1`.
+
+### Test evidence
+
+| Layer | Command / note | Outcome |
+| --- | --- | --- |
+| Unit Python | `"C:\Program Files\uv\uv.exe" run --locked pytest tests/chat_agent -q` | 51 passed |
+| Unit .NET | `dotnet run --project tests/Platform.Tests` | 30 checks passed |
+| Build | Api + Worker + Ui + Infrastructure + Tests | succeeded |
+| Recorded eval | `scripts/run_eval_recorded.py` | recorded only; live model open |
+| SQL live | apply 005–007 on MSSQL | **NOT RUN** |
+| Temporal replay | TaskWorkflow | **NOT RUN** |
+| LLM tool-calling | real model endpoint | **NOT RUN** |
+| Browser | Conversations E2E / A01 | **NOT RUN** |
+| Crash live | A04–A16 on staging | **NOT RUN** |
+
+### FR-201–FR-217 / A01–A18
+
+Implementation coverage exists in code/unit for FR-201–217 semantics. **A01–A18 live checklist: NOT RUN.** Do not treat documentation or in-memory checkpointer as production validation. Chat Agent recovery ≠ OpenCode workspace recovery; UNKNOWN remains honest.
+
+### Remaining / infrastructure blockers
+
+- Git unavailable → no SHA diff vs ba628591…
+- MSSQL / Temporal / Docker / OIDC browser / model endpoint absent in agent environment
+- `/api/v2/stream` WebSocket client wired in Conversations.razor (REST events fallback on reconnect); live browser E2E still open
+- Full gRPC AgentChannel against staging mTLS deferred
+- API/WASM historical MSB issues may still appear on machines without pinned SDK rollForward
+
+### Preserve
+
+Do not overwrite 001 HITL confirm, timeline, repositories/PAT, WSL gRPC, stream Map/CONNECT, MapStaticAssets, WasmEnableHotReload=false.
+
+## Feature 002 — runtime wiring follow-up (2026-09-15)
+
+Added after initial M0–M5 scaffold:
+
+- `AgentService` gRPC `agent.v1` Connect: Hello/Claim/Heartbeat/EnsureInvocation/GetInvocation/Complete/CreateInteraction/Checkpoint*
+- `ChatStore` claim/complete/lease for `chat.root`; `START_TASK` / `SIGNAL_CANCEL` inbox
+- Worker `DispatchChat` starts `TaskWorkflow` / cancel signal
+- `ConversationStream` at `/api/v2/stream` (subscribe conversationId + afterSequence)
+- Python `agent_pb2*` + `chat_agent.transport` + fake claim/complete loop when `PLATFORM_GRPC` set
+- Assignment.goal on wire for fake replies
+
+Evidence: Api build succeeded; pytest chat_agent + hitl_bridge (see latest run). Live Temporal/MSSQL/browser/gRPC mTLS still open.
+
+## Feature 002 — next slice 1B/2B (2026-09-15)
+
+Agreed direction: **1B** Deep Agents + bus tool-calling first; **2B** code/unit only (no MSSQL/Temporal/OIDC/browser in agent env).
+
+### Code vs acceptance
+
+| Layer | Meaning |
+| --- | --- |
+| Code done | Types, handlers, harness, UI wiring exist and unit/protocol tests pass |
+| Acceptance open | Live A01–A18, real MSSQL checkpointer, Temporal replay, real LLM eval, browser E2E |
+
+tasks.md `[x]` for T004/T013–T024 means **code evidence**, not live acceptance. A01–A18 remain NOT RUN until staging.
+
+### This slice goals
+
+1. EnsureInvocation → CapabilityHandlers + persisted result  
+2. Deep Agents HarnessProfile (exclude shell/FS/execute, no GP subagent) + bus tools + checkpoint-before-ensure + recorded-model tests  
+3. coding.execute → SqlStore.Start(CommandId=RunId)  
+4. Conversations WS client + cards; Run→ConversationEvent projection  
+5. Eval/crash unit expansion; blockers listed — **do not close live gates with mocks**
+
+### 1B/2B slice outcome (2026-09-15)
+
+**Code done:** bus handlers execute on EnsureInvocation; Run.Id==CommandId for durable Start; Deep Agents profile + langchain bus tools + recorded tests; Conversations WS (`/api/v2/stream`) + progress/context/artifact cards + once|reject; Run status projected to ConversationEvents (honest checks, no fabricated passed); recorded eval script + crash unit expansion.
+
+### Live blockers A01–A18 (all NOT RUN / 2B)
+
+| ID | Gate | Status |
+| --- | --- | --- |
+| A01 | Browser Conversations E2E | NOT RUN |
+| A02 | No-repo start → agent chooses context | NOT RUN |
+| A03 | Immutable SHA coding path | NOT RUN |
+| A04 | Lost EnsureInvocation reply idempotency (live) | unit only |
+| A05 | No child without checkpoint (live) | unit only |
+| A06 | Checkpoint SQL roundtrip | NOT RUN |
+| A07 | Stale fence reject (live) | unit only |
+| A08 | Task cancel while coding | NOT RUN |
+| A09 | Steer pending goal | NOT RUN |
+| A10 | Interaction once/reject delivery | NOT RUN |
+| A11 | Always rejected | unit only |
+| A12 | UNKNOWN not masked | unit only |
+| A13 | Multi-replica event cursor | NOT RUN |
+| A14 | Temporal TaskWorkflow replay | NOT RUN |
+| A15 | Runner loss → attention | NOT RUN |
+| A16 | Chat Agent pod restart resume | NOT RUN |
+| A17 | Eval thresholds on real model | NOT RUN |
+| A18 | Ops helm/native smoke full | NOT RUN |
+
+**Acceptance still open (2B):** A01–A18 live, MSSQL apply 005–007, Temporal replay, real `CHAT_AGENT_BASE_URL` tool-calling, browser E2E, OpenCode coding smoke.
+
+## Feature 002 — child wait / wakeup loop (2026-09-15)
+
+**Code done:** `ProjectRunStatus` updates child invocation only + enqueues `SIGNAL_CHILD_COMPLETED` (task stays `WAITING_CHILD`, not terminalized by Run); Worker signals `ChildCompleted` + real `ReconcileTaskChildren` re-queues root claim; `coding.execute` persists `RUNNING` (not SUCCEEDED) at Start; `SuspendExecution` + Python Suspend/wait; `main` skips Complete when `disposition=suspended`.
+
+**Evidence:** unit `tests/chat_agent/test_child_wait.py` + crash invariant; Api/Worker build. **Live Temporal signal/reconcile / OpenCode E2E: NOT RUN.**
+
+## Feature 002 — Progress Map (2026-09-15)
+
+Каноническая сводка для спеки/агента. Детали срезов выше; FR/A не менялись.
+
+### Code / unit — done
+
+| Slice | Contents |
+| --- | --- |
+| M0–M5 scaffold | SQL 005–007, ChatStore, `/api/v2`, agent.v1, TaskWorkflow, Conversations UI, fake agent, helm/ops stubs (T001–T024 `[x]` = code) |
+| 1B + bus | Deep Agents HarnessProfile; EnsureInvocation→CapabilityHandlers; coding Start(CommandId=RunId); WS/cards |
+| Child wait | ProjectRunStatus→WAITING_CHILD + SIGNAL_CHILD_COMPLETED; ReconcileTaskChildren; coding RUNNING; Suspend |
+
+Evidence ориентир: ~51 pytest `tests/chat_agent`, ~30 Platform.Tests, Api/Worker/Ui build.
+
+### Code remaining (ordered)
+
+| Task | Scope |
+| --- | --- |
+| T025–T028 | **code done** (2026-09-15): interaction wake, steer apply, cancel→abort runs, resume [[KATS_RESUME]] |
+| T029 | Staging live gate pack only |
+
+### Live remaining (T029 / A01–A18)
+
+Все **NOT RUN**: MSSQL apply 005–007, Temporal replay+ChildCompleted, real `CHAT_AGENT_BASE_URL`, browser Conversations E2E, OpenCode coding/UNKNOWN. Unit partials A04–A07/A11–A12 не закрывают staging. Unit: missing LLM config → `Complete` path `MODEL_NOT_CONFIGURED` (no recorded-fallback); proto `error_code`/`safe_message` roundtrip.
+
+Spec sync: `specs/002-conversational-orchestrator/README.md`, `plan.md`, `tasks.md`, `checklists/acceptance.md`.

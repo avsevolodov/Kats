@@ -12,7 +12,11 @@ uv run --locked scripts/test_env.py up
 Команда создаёт инфраструктуру и `appsettings.Development.json` в проектах
 `src/Platform.Api` и `src/Platform.Worker`. В Rider запускайте профили **Kats API**
 и **Kats Worker**. Оба выбирают `Development`. UI отдельно запускать не нужно:
-API отдаёт Blazor WASM по https://localhost:8443/.
+API отдаёт Blazor WASM по https://localhost:8443/ (чат `/`, диагностика Run `/runs`).
+
+Перед первым запуском 002 на существующей БД примените SQL `005`→`007`
+([local-development.md](local-development.md)). Иначе Worker падает на `ConversationCommands`.
+Опционально пятый процесс — Chat Agent ([chat-agent-ops.md](chat-agent-ops.md)).
 
 Для своих MSSQL/Temporal/OIDC:
 

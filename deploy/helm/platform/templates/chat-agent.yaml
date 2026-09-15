@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-chat-agent
+spec:
+  replicas: {{ .Values.chatAgentReplicas | default 1 }}
+  selector:
+    matchLabels: {app: "{{ .Release.Name }}-chat-agent"}
+  template:
+    metadata:
+      labels: {app: "{{ .Release.Name }}-chat-agent"}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: chat-agent
+          image: {{ .Values.images.chatAgent | default .Values.images.runner | quote }}
+          securityContext: {runAsUser: 10001, runAsGroup: 10001, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          env:
+            - {name: CHAT_AGENT_MODE, value: {{ .Values.chat.mode | default "fake" | quote }}}
+            - {name: CHAT_AGENT_PROVIDER, value: {{ .Values.chat.provider | default "openai_compatible" | quote }}}
+            - {name: CHAT_AGENT_MODEL, value: {{ .Values.chat.model | default "configured-internal-model" | quote }}}
+            {{- if .Values.chat.baseUrl }}
+            - {name: CHAT_AGENT_BASE_URL, value: {{ .Values.chat.baseUrl | quote }}}
+            {{- end }}
+            - {name: PLATFORM_GRPC, value: "{{ .Release.Name }}-api:8081"}
+            {{- if .Values.secrets.chatModel }}
+            - name: CHAT_AGENT_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.secrets.chatModel }}, key: apiKey}}
+            {{- end }}

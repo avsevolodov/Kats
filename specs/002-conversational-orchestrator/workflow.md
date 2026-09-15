@@ -20,6 +20,8 @@
 
 Race «child завершился до записи WAITING_CHILD»: при переходе wait проверяется terminal child и pending wakeup в той же транзакции. Periodic reconciler находит waiting графы с готовыми dependencies.
 
+*Реализация code/unit (2026-09-15):* `SIGNAL_CHILD_COMPLETED` + `ReconcileTaskChildren` + Suspend; live Temporal/SQL — T029. Consume child result на втором claim — T028.
+
 ## Статусы
 
 Task: ACCEPTED → ACTIVE ↔ WAITING_USER/WAITING_CHILD → SUCCEEDED | FAILED | CANCELLED | NEEDS_ATTENTION.

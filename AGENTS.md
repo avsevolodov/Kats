@@ -18,10 +18,12 @@
 14. Если infrastructure недоступна, продолжай код, deterministic tests и manifests; в итоговом отчёте отдельно перечисли непроведённые live gates. Не выдавай mock за production validation.
 15. Обновляй `docs/implementation-status.md`: done, test evidence, remaining, infrastructure blockers. Не меняй требования ради зелёных тестов.
 
-## Дополнение для feature 002 (2026-09-14)
+## Дополнение для feature 002 (2026-09-14, обновлено 2026-09-15)
 
-По согласованному запросу пользователя подготовлен specs/002-conversational-orchestrator/README.md. При реализации 002 работай по его tasks.md; предыдущий список задач остаётся baseline 001.
+По согласованному запросу пользователя подготовлен specs/002-conversational-orchestrator. При работе над 002 следуй его `tasks.md`; baseline 001 сохраняется.
 
 Для 002 пункт 2 расширяется отдельным Python Chat Agent на Deep Agents/LangGraph. Пункты 8 и 10 расширяются только зарегистрированными вызовами Chat Agent → tool/Coding Agent через шину и необходимыми invocation/checkpoint интерфейсами. Это описание runtime продукта, не разрешение автоматически запускать субагентов при работе над репозиторием.
 
-Продуктовые Git push/PR/CI side effects остаются вне scope. Сохраняются read-only Git credentials, ограничения инфраструктуры и recovery OpenCode. Изменения по 002 см. ADR-201–208 в research.md; остальные требования выше продолжают действовать. Все новые задачи пока не выполнены.
+Продуктовые Git push/PR/CI side effects остаются вне scope. Сохраняются read-only Git credentials, ограничения инфраструктуры и recovery OpenCode. ADR-201–208 в research.md; FR не менять ради зелёных тестов.
+
+**Статус (2026-09-15):** code/unit срезы M0–M5 scaffold + Deep Agents bus + child wait + **T025–T028** поставлены (`[x]` = code evidence). Дальше **T029** (live staging). **Не объявлять A01–A18 закрытыми** без staging. Сводка: `docs/implementation-status.md` (**002 Progress Map**), `specs/002-conversational-orchestrator/README.md`.

@@ -58,7 +58,7 @@ public partial class SqlStore(IDbContextFactory<PlatformDb> factory, IDataProtec
             if (old != null) { Rules.Require(old.Hash == hash && old.Kind == "START", "COMMAND_CONFLICT"); return new(old.Id, old.RunId, old.Status); }
             Rules.Require(await db.Repositories.AnyAsync(x => x.Id == request.RepositoryId && x.Enabled), "REPOSITORY_NOT_FOUND", 404);
             Rules.Require(await db.Runs.CountAsync(x => x.Status != "SUCCEEDED" && x.Status != "FAILED" && x.Status != "CANCELLED" && x.Status != "NEEDS_ATTENTION") < 10, "CAPACITY", 429);
-            var run = new RunRow { Id = Guid.NewGuid(), OperationId = Guid.NewGuid(), Owner = owner, RepositoryId = request.RepositoryId, BaseCommit = request.BaseCommit, Prompt = request.Prompt, CreatedAt = now, UpdatedAt = now, Deadline = now.AddMinutes(20) };
+            var run = new RunRow { Id = request.CommandId, OperationId = Guid.NewGuid(), Owner = owner, RepositoryId = request.RepositoryId, BaseCommit = request.BaseCommit, Prompt = request.Prompt, CreatedAt = now, UpdatedAt = now, Deadline = now.AddMinutes(20) };
             db.Runs.Add(run); db.Commands.Add(new() { Id = request.CommandId, Owner = owner, RunId = run.Id, Kind = "START", Hash = hash, CreatedAt = now });
             Emit(db, run, now, "RunAccepted", new { status = "ACCEPTED" });
             return new CommandAccepted(request.CommandId, run.Id);

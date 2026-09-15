@@ -1,4 +1,4 @@
-@page "/"
+@page "/runs"
 @inject HttpClient Http
 @inject NavigationManager Nav
 <main>
@@ -6,14 +6,15 @@
         <span class="brand">AGENT PLATFORM</span>
         <nav class="nav">
             @if (signedIn) {
+                <a href="/">Диалог</a>
                 <a href="/repositories">Репозитории</a>
                 @if (isAdmin) { <a href="/agents">Агенты</a> }
                 <a href="/logout">Выйти</a>
             } else { <a href="/login">Войти</a> }
         </nav>
     </header>
-    <h1>Задачи разработки</h1>
-    <p class="muted">Опишите изменение. Агент подготовит результат и patch для проверки.</p>
+    <h1>Диагностика Run</h1>
+    <p class="muted">Legacy форма запуска OpenCode. Основной UX — диалог без обязательного выбора репозитория.</p>
     @if (error != null) { <p role="alert" class="error">@error</p> }
     <section>
         <h2>Новая задача</h2>

@@ -124,6 +124,22 @@ public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext
     public DbSet<ArtifactRow> Artifacts => Set<ArtifactRow>();
     public DbSet<RunnerSessionRow> RunnerSessions => Set<RunnerSessionRow>();
     public DbSet<OperationConfirmationRow> OperationConfirmations => Set<OperationConfirmationRow>();
+    public DbSet<ConversationRow> Conversations => Set<ConversationRow>();
+    public DbSet<AgentTaskRow> AgentTasks => Set<AgentTaskRow>();
+    public DbSet<MessageRow> Messages => Set<MessageRow>();
+    public DbSet<ConversationCommandRow> ConversationCommands => Set<ConversationCommandRow>();
+    public DbSet<TaskInputRow> TaskInputs => Set<TaskInputRow>();
+    public DbSet<InvocationRow> Invocations => Set<InvocationRow>();
+    public DbSet<DispatchIntentRow> DispatchIntents => Set<DispatchIntentRow>();
+    public DbSet<AgentExecutionRow> AgentExecutions => Set<AgentExecutionRow>();
+    public DbSet<InteractionRequestRow> InteractionRequests => Set<InteractionRequestRow>();
+    public DbSet<InteractionDecisionRow> InteractionDecisions => Set<InteractionDecisionRow>();
+    public DbSet<ConversationEventRow> ConversationEvents => Set<ConversationEventRow>();
+    public DbSet<GraphCheckpointRow> GraphCheckpoints => Set<GraphCheckpointRow>();
+    public DbSet<GraphPendingWriteRow> GraphPendingWrites => Set<GraphPendingWriteRow>();
+    public DbSet<ContextBindingRow> ContextBindings => Set<ContextBindingRow>();
+    public DbSet<RepositoryMetadataRow> RepositoryMetadata => Set<RepositoryMetadataRow>();
+    public DbSet<RepositoryAccessRow> RepositoryAccess => Set<RepositoryAccessRow>();
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; } = null!;
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -171,6 +187,7 @@ public sealed class PlatformDb(DbContextOptions<PlatformDb> options) : DbContext
         b.Entity<ArtifactRow>().HasOne<OperationRow>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<ReceiptRow>().HasOne<OperationRow>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<OperationConfirmationRow>().HasOne<OperationRow>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Restrict);
+        ChatDbModel.Configure(b);
         foreach (var e in b.Model.GetEntityTypes())
             foreach (var p in e.GetProperties().Where(x => x.ClrType == typeof(DateTime) || x.ClrType == typeof(DateTime?))) p.SetColumnType("datetime2");
     }

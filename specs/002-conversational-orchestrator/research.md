@@ -46,6 +46,13 @@ Root Chat Agent может вызывать tools и Coding Agent; Research Agen
 Always из старых ветвей не переносится в новый контракт. Решение не зависит от свободного текста «да» без однозначного InteractionId.
 Неизвестный OpenCode permission reply остаётся unknown и требует внимания; checkpoint не разрешает повтор.
 
+### T002 decision (2026-09-15)
+
+Канонический OpenCode HITL bridge: `OperationConfirmations` + `POST /api/v1/runs/{id}/confirm` + runner `ConfirmationRequired`/`ConfirmationReply`.
+Legacy `Permissions`/`PermissionExchange` и docs/permissions.md endpoints не являются bridge для 002 Interaction.
+Baseline Run UI may still offer Always for OpenCode server; Interaction v2 validator rejects Always (`ALWAYS_NOT_ALLOWED`).
+Evidence: `tests/runner/test_hitl_bridge_002.py`, `chat_agent.interaction`.
+
 ## ADR-207: Scope amendment
 
 По запросу пользователя 002 разрешает Python Chat Agent, ограниченные child invocations и общий HITL.

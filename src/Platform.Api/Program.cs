@@ -46,6 +46,11 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
 });
 builder.Services.AddDbContextFactory<PlatformDb>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("Platform") ?? throw new InvalidOperationException("ConnectionStrings:Platform required")));
 builder.Services.AddSingleton<SqlStore>();
+builder.Services.AddSingleton(sp => new ChatStore(sp.GetRequiredService<IDbContextFactory<PlatformDb>>())
+{
+    ChatEnabled = builder.Configuration.GetValue("Chat:Enabled", true)
+});
+builder.Services.AddSingleton<CapabilityHandlers>();
 builder.Services.AddGrpc(o => { o.MaxReceiveMessageSize = 6 * 1024 * 1024; o.MaxSendMessageSize = 6 * 1024 * 1024; });
 builder.Services.AddAntiforgery(o => o.HeaderName = "X-CSRF-TOKEN");
 var protection = builder.Services.AddDataProtection().SetApplicationName("AgentPlatformMvp").PersistKeysToDbContext<PlatformDb>();
@@ -151,8 +156,58 @@ api.MapPost("/runs/{id:guid}/cancel", async (Guid id, CancelRun r, HttpContext c
 api.MapPost("/runs/{id:guid}/confirm", async (Guid id, ConfirmRun r, HttpContext c, IAntiforgery a, SqlStore s) => { await a.ValidateRequestAsync(c); var result = await s.Confirm(Owner(c), id, r); return Results.Accepted(result.StatusUrl, result); });
 api.MapGet("/runs/{id:guid}/events", async (Guid id, HttpContext c, SqlStore s) => { var raw = c.Request.Query["afterSequence"].FirstOrDefault() ?? "0"; Rules.Require(long.TryParse(raw, out var n), "INVALID_CURSOR", 400); return await s.Events(Owner(c), id, n); });
 api.MapGet("/runs/{id:guid}/artifacts/{artifact:guid}", async (Guid id, Guid artifact, HttpContext c, SqlStore s) => { var a = await s.Artifact(Owner(c), id, artifact); return Results.File(a.Content, "text/plain; charset=utf-8", a.Kind == "patch" ? "changes.patch" : "summary.txt"); });
-// HTTP/1.1 WebSocket uses GET; HTTP/2 uses Extended CONNECT. MapGet → 405 on H2.
-api.Map("/stream", BrowserStream.Handle);
+// Run stream: only app.Map("/api/v1/stream", ...) above — do not also Map /stream on this group (AmbiguousMatchException).
+
+var chat = app.MapGroup("/api/v2").RequireAuthorization();
+chat.MapPost("/conversations", async (CreateConversation body, HttpContext c, IAntiforgery a, ChatStore s) =>
+{
+    await a.ValidateRequestAsync(c);
+    var created = await s.CreateConversation(Owner(c), body);
+    return Results.Created($"/api/v2/conversations/{created.ConversationId}", created);
+});
+chat.MapGet("/conversations", async (HttpContext c, ChatStore s) => Results.Ok(new { items = await s.ListConversations(Owner(c)), nextCursor = (string?)null }));
+chat.MapGet("/conversations/{id:guid}", async (Guid id, HttpContext c, ChatStore s) => await s.GetConversation(Owner(c), id));
+chat.MapPost("/conversations/{id:guid}/messages", async (Guid id, PostMessage body, HttpContext c, IAntiforgery a, ChatStore s) =>
+{
+    await a.ValidateRequestAsync(c);
+    var accepted = await s.PostMessage(Owner(c), id, body);
+    return Results.Accepted($"/api/v2/conversations/{id}/messages/{accepted.MessageId}", accepted);
+});
+chat.MapGet("/conversations/{id:guid}/messages", async (Guid id, HttpContext c, ChatStore s) => Results.Ok(new { items = await s.ListMessages(Owner(c), id) }));
+chat.MapGet("/conversations/{id:guid}/events", async (Guid id, HttpContext c, ChatStore s) =>
+{
+    var raw = c.Request.Query["afterSequence"].FirstOrDefault() ?? "0";
+    Rules.Require(long.TryParse(raw, out var n), "INVALID_CURSOR", 400);
+    return await s.Events(Owner(c), id, n);
+});
+chat.MapGet("/tasks/{id:guid}", async (Guid id, HttpContext c, ChatStore s) => await s.GetTask(Owner(c), id));
+chat.MapPost("/tasks/{id:guid}/cancel", async (Guid id, CancelTask body, HttpContext c, IAntiforgery a, ChatStore s) =>
+{
+    await a.ValidateRequestAsync(c);
+    return Results.Accepted($"/api/v2/tasks/{id}", await s.CancelTask(Owner(c), id, body));
+});
+chat.MapPost("/interactions/{id:guid}/responses", async (Guid id, InteractionResponse body, HttpContext c, IAntiforgery a, ChatStore s) =>
+{
+    await a.ValidateRequestAsync(c);
+    return Results.Accepted($"/api/v2/interactions/{id}", await s.RespondInteraction(Owner(c), id, body));
+});
+chat.Map("/stream", ConversationStream.Handle);
+// Internal checkpoint API for Chat Agent checkpointer (workload auth in production).
+var internalApi = app.MapGroup("/internal/v1").RequireAuthorization();
+internalApi.MapPut("/checkpoints", async (CheckpointPutRequest body, ChatStore s) => { await s.PutCheckpoint(body); return Results.NoContent(); });
+internalApi.MapPut("/checkpoints/writes", async (CheckpointPutWritesRequest body, ChatStore s) => { await s.PutCheckpointWrites(body); return Results.NoContent(); });
+internalApi.MapGet("/checkpoints", async (Guid threadId, string? @namespace, string? checkpointId, ChatStore s) =>
+{
+    var item = await s.GetCheckpoint(threadId, @namespace ?? "", checkpointId);
+    return Results.Ok(new { item });
+});
+internalApi.MapGet("/checkpoints/list", async (Guid threadId, string? @namespace, int? limit, ChatStore s) =>
+{
+    var items = await s.ListCheckpoints(threadId, @namespace ?? "", limit ?? 10);
+    return Results.Ok(new { items });
+});
+
 app.MapGrpcService<RunnerService>();
+app.MapGrpcService<AgentService>();
 app.MapFallbackToFile("index.html");
 app.Run();

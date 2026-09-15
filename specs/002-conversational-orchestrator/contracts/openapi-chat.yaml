@@ -1,0 +1,29 @@
+# Chat OpenAPI sketch for T006 (normative narrative remains contracts/chat-api.md).
+openapi: 3.0.3
+info:
+  title: Kats Chat API
+  version: "2.0.0"
+paths:
+  /api/v2/conversations:
+    post:
+      summary: Create conversation
+      responses:
+        "201":
+          description: Created
+    get:
+      summary: List conversations
+      responses:
+        "200":
+          description: OK
+  /api/v2/conversations/{id}/messages:
+    post:
+      summary: Post message
+      responses:
+        "202":
+          description: PERSISTED
+  /api/v2/interactions/{id}/responses:
+    post:
+      summary: Interaction decision once/reject/answer (no Always)
+      responses:
+        "202":
+          description: PERSISTED

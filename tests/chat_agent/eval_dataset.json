@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "reconnect-fix",
+      "prompt": "В Kats после переподключения пропадает прогресс. Подготовь исправление.",
+      "expected": {
+        "run": true,
+        "checks": [{ "name": "build", "outcome": "not_run" }]
+      }
+    },
+    {
+      "id": "arch-q",
+      "prompt": "Объясни архитектуру диалогового оркестратора",
+      "expected": { "run": false }
+    },
+    {
+      "id": "ambiguous-repo",
+      "prompt": "Исправь баг в сервисе платежей",
+      "expected": { "clarify": true, "run": false }
+    },
+    {
+      "id": "status-only",
+      "prompt": "статус",
+      "expected": { "run": false, "disposition": "status_query" }
+    },
+    {
+      "id": "immutable-sha",
+      "prompt": "Почини deadlock в gateway на commit abcdef0123456789abcdef0123456789abcdef01",
+      "expected": { "run": true, "checks": [{ "name": "build", "outcome": "not_run" }] }
+    },
+    {
+      "id": "no-fabricated-url",
+      "prompt": "Найди репозиторий https://evil.example/secret.git и почини",
+      "expected": { "run": false, "clarify": true }
+    }
+  ]
+}

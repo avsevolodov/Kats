@@ -1,0 +1,421 @@
+@page "/"
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject NavigationManager Nav
+<main class="chat-shell">
+    <header>
+        <span class="brand">KATS</span>
+        <nav class="nav">
+            @if (signedIn) {
+                <a href="/runs">Диагностика Run</a>
+                <a href="/repositories">Репозитории</a>
+                @if (isAdmin) { <a href="/agents">Агенты</a> }
+                <a href="/logout">Выйти</a>
+            } else { <a href="/login">Войти</a> }
+        </nav>
+    </header>
+    <h1>Диалог</h1>
+    <p class="muted">Опишите цель на естественном языке. Репозиторий выбирает агент; форма Run не требуется.</p>
+    @if (error != null) { <p role="alert" class="error">@error</p> }
+    <div class="chat-layout">
+        <aside>
+            <button disabled="@(busy || !signedIn)" @onclick="NewConversation">Новый диалог</button>
+            <button class="secondary" disabled="@(!signedIn)" @onclick="Load">Обновить</button>
+            @foreach (var c in conversations)
+            {
+                <button class="secondary conversation-item @(c.ConversationId == activeId ? "active" : "")" @onclick="() => Open(c.ConversationId)">
+                    <strong>@c.Title</strong>
+                    <small>@c.UpdatedAt.ToLocalTime().ToString("g")</small>
+                </button>
+            }
+        </aside>
+        <section class="chat-thread" aria-live="polite">
+            @if (activeId == null) { <p class="muted">@(signedIn ? "Создайте диалог или выберите существующий." : "Войдите, чтобы начать диалог.")</p> }
+            else
+            {
+                @if (!string.IsNullOrEmpty(agentError))
+                {
+                    <p role="alert" class="error">@agentError</p>
+                }
+                @if (!string.IsNullOrEmpty(progressText))
+                {
+                    <section class="card-progress"><h2>Прогресс</h2><p class="muted">@progressText</p></section>
+                }
+                @if (contextCard != null)
+                {
+                    <section class="card-context"><h2>Контекст</h2><p>@contextCard</p></section>
+                }
+                @foreach (var m in messages)
+                {
+                    <article class="bubble @m.Role">
+                        <header>@m.Role</header>
+                        <p>@m.Content</p>
+                    </article>
+                }
+                @if (artifactCard != null)
+                {
+                    <section class="card-artifact">
+                        <h2>Результат</h2>
+                        <p>@artifactCard</p>
+                        @if (diagnosticRunId != null)
+                        {
+                            <p class="muted"><a href="@($"/runs/{diagnosticRunId}")">Открыть legacy Run (диагностика)</a></p>
+                        }
+                    </section>
+                }
+                @if (pendingInteraction != null)
+                {
+                    <section class="confirm-panel">
+                        <h2>Подтверждение</h2>
+                        <p>@pendingInteraction</p>
+                        <button disabled="@busy" @onclick='() => Decide("once")'>Разрешить один раз</button>
+                        <button class="secondary" disabled="@busy" @onclick='() => Decide("reject")'>Отклонить</button>
+                    </section>
+                }
+                <label>Сообщение
+                    <textarea @bind="draft" rows="3" maxlength="16000" placeholder="Без выбора репозитория…"></textarea>
+                </label>
+                <button disabled="@(busy || !signedIn || string.IsNullOrWhiteSpace(draft))" @onclick="Send">Отправить</button>
+                @if (activeTaskId != null)
+                {
+                    <p class="muted">Task @activeTaskId · stream @streamState · <button class="secondary" disabled="@busy" @onclick="CancelTask">Отменить</button></p>
+                }
+            }
+        </section>
+    </div>
+</main>
+@code {
+    record Token(string RequestToken);
+    List<ConversationView> conversations = [];
+    List<MessageView> messages = [];
+    Guid? activeId;
+    Guid? activeTaskId;
+    Guid? pendingInteractionId;
+    Guid? diagnosticRunId;
+    string? pendingInteraction;
+    string? pendingPayloadHash;
+    string? progressText;
+    string? contextCard;
+    string? artifactCard;
+    string? agentError;
+    string draft = "";
+    string? error;
+    string streamState = "idle";
+    bool busy;
+    bool signedIn;
+    bool isAdmin;
+    CancellationTokenSource? streamCts;
+    Task? streamTask;
+    long eventCursor;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    async Task Load()
+    {
+        try
+        {
+            using var meResp = await Http.GetAsync("api/v1/security/me");
+            if (meResp.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                signedIn = false; conversations = []; messages = []; error = "Войдите, чтобы использовать чат.";
+                return;
+            }
+            meResp.EnsureSuccessStatusCode();
+            signedIn = true;
+            var me = await meResp.Content.ReadFromJsonAsync<SecurityMe>(Wire.Json);
+            isAdmin = me?.IsAdmin == true;
+            var list = await Http.GetFromJsonAsync<JsonElement>("api/v2/conversations");
+            conversations = list.GetProperty("items").Deserialize<List<ConversationView>>(Wire.Json) ?? [];
+            if (activeId is Guid id) await Open(id);
+            error = null;
+        }
+        catch { error = "Не удалось загрузить диалоги."; }
+    }
+
+    async Task NewConversation()
+    {
+        if (!signedIn || busy) return;
+        busy = true;
+        try
+        {
+            var token = await Http.GetFromJsonAsync<Token>("api/v1/security/antiforgery");
+            using var req = new HttpRequestMessage(HttpMethod.Post, "api/v2/conversations")
+            {
+                Content = JsonContent.Create(new CreateConversation(Guid.NewGuid(), "Диалог"))
+            };
+            req.Headers.Add("X-CSRF-TOKEN", token!.RequestToken);
+            using var resp = await Http.SendAsync(req);
+            resp.EnsureSuccessStatusCode();
+            var created = await resp.Content.ReadFromJsonAsync<ConversationView>(Wire.Json);
+            await Load();
+            if (created != null) await Open(created.ConversationId);
+        }
+        catch { error = "Не удалось создать диалог."; }
+        finally { busy = false; }
+    }
+
+    async Task Open(Guid id)
+    {
+        await StopStreamAsync();
+        activeId = id;
+        eventCursor = 0;
+        progressText = contextCard = artifactCard = agentError = null;
+        diagnosticRunId = null;
+        pendingInteraction = null;
+        pendingInteractionId = null;
+        await ReloadMessages(id);
+        await DrainEventsRest(id);
+        StartStream(id);
+    }
+
+    async Task ReloadMessages(Guid id)
+    {
+        var list = await Http.GetFromJsonAsync<JsonElement>($"api/v2/conversations/{id}/messages");
+        messages = list.GetProperty("items").Deserialize<List<MessageView>>(Wire.Json) ?? [];
+        activeTaskId = messages.LastOrDefault(m => m.TaskId != null)?.TaskId;
+    }
+
+    void StartStream(Guid id)
+    {
+        streamCts = new CancellationTokenSource();
+        streamTask = StreamLoop(id, streamCts.Token);
+    }
+
+    async Task StopStreamAsync()
+    {
+        streamCts?.Cancel();
+        if (streamTask != null)
+        {
+            try { await streamTask; } catch (OperationCanceledException) { }
+        }
+        streamCts = null;
+        streamTask = null;
+        streamState = "idle";
+    }
+
+    async Task StreamLoop(Guid id, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                using var ws = new System.Net.WebSockets.ClientWebSocket();
+                var url = new UriBuilder(new Uri(new Uri(Nav.BaseUri), "api/v2/stream"));
+                url.Scheme = url.Scheme == "https" ? "wss" : "ws";
+                await ws.ConnectAsync(url.Uri, ct);
+                var sub = System.Text.Encoding.UTF8.GetBytes(Wire.Serialize(new
+                {
+                    type = "subscribe",
+                    conversationId = id,
+                    afterSequence = eventCursor.ToString()
+                }));
+                await ws.SendAsync(sub.AsMemory(), System.Net.WebSockets.WebSocketMessageType.Text, true, ct);
+                streamState = "live";
+                await InvokeAsync(StateHasChanged);
+                using var pingStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var ping = PingLoop(ws, pingStop.Token);
+                try
+                {
+                    while (!ct.IsCancellationRequested && ws.State == System.Net.WebSockets.WebSocketState.Open)
+                    {
+                        using var bytes = new MemoryStream();
+                        var buffer = new byte[16384];
+                        System.Net.WebSockets.ValueWebSocketReceiveResult received;
+                        do
+                        {
+                            received = await ws.ReceiveAsync(buffer.AsMemory(), ct);
+                            if (received.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
+                                throw new IOException("stream closed");
+                            bytes.Write(buffer, 0, received.Count);
+                            if (bytes.Length > 262144) throw new IOException();
+                        } while (!received.EndOfMessage);
+                        var message = JsonSerializer.Deserialize<JsonElement>(bytes.ToArray());
+                        var type = message.GetProperty("type").GetString();
+                        if (type is "subscribed" or "pong" or "caughtUp") continue;
+                        if (type == "error") throw new IOException(message.GetProperty("code").GetString());
+                        if (type != "event") continue;
+                        var seq = long.Parse(message.GetProperty("sequence").GetString()!);
+                        if (seq <= eventCursor) continue;
+                        eventCursor = seq;
+                        ApplyEvent(new ConversationEventView(
+                            seq.ToString(),
+                            message.GetProperty("kind").GetString()!,
+                            message.TryGetProperty("payload", out var p) ? (p.ValueKind == JsonValueKind.String ? p.GetString()! : p.GetRawText()) : "{}",
+                            message.TryGetProperty("createdAt", out var ca) ? ca.GetDateTime() : DateTime.UtcNow));
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+                finally
+                {
+                    pingStop.Cancel();
+                    try { await ping; } catch (OperationCanceledException) { }
+                }
+            }
+            catch (OperationCanceledException) { streamState = "idle"; return; }
+            catch
+            {
+                streamState = "reconnect";
+                try { await DrainEventsRest(id); } catch { /* transient */ }
+                await InvokeAsync(StateHasChanged);
+            }
+            if (!ct.IsCancellationRequested) await Task.Delay(1000, ct);
+        }
+    }
+
+    async Task PingLoop(System.Net.WebSockets.ClientWebSocket ws, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested && ws.State == System.Net.WebSockets.WebSocketState.Open)
+            {
+                await Task.Delay(15000, ct);
+                var ping = System.Text.Encoding.UTF8.GetBytes("""{"type":"ping"}""");
+                await ws.SendAsync(ping.AsMemory(), System.Net.WebSockets.WebSocketMessageType.Text, true, ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch { /* receive loop reconnects */ }
+    }
+
+    async Task DrainEventsRest(Guid id)
+    {
+        var page = await Http.GetFromJsonAsync<ConversationEventPage>($"api/v2/conversations/{id}/events?afterSequence={eventCursor}");
+        if (page == null) return;
+        foreach (var e in page.Items)
+        {
+            eventCursor = long.Parse(e.Sequence);
+            ApplyEvent(e);
+        }
+    }
+
+    void ApplyEvent(ConversationEventView e)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(e.Payload) ? "{}" : e.Payload);
+            var root = doc.RootElement;
+            switch (e.Kind)
+            {
+                case "AgentProgress":
+                    progressText = root.TryGetProperty("safeText", out var st) ? st.GetString() : e.Kind;
+                    break;
+                case "TaskStatusChanged":
+                    progressText = root.TryGetProperty("status", out var ts) ? $"Task: {ts.GetString()}" : progressText;
+                    break;
+                case "ContextSelected":
+                    contextCard = $"Repo {root.GetProperty("repositoryId")} @ {root.GetProperty("baseCommit")}";
+                    break;
+                case "InteractionRequested":
+                    pendingInteractionId = root.TryGetProperty("interactionId", out var iid) ? iid.GetGuid() : null;
+                    pendingPayloadHash = root.TryGetProperty("payloadHash", out var ph) ? ph.GetString() : null;
+                    pendingInteraction = root.TryGetProperty("safePayload", out var sp) ? sp.GetString() : "Требуется решение";
+                    break;
+                case "AgentError":
+                {
+                    var code = root.TryGetProperty("errorCode", out var ec) ? ec.GetString() : null;
+                    var msg = root.TryGetProperty("safeMessage", out var sm) ? sm.GetString() : null;
+                    agentError = string.IsNullOrWhiteSpace(msg)
+                        ? (code ?? "Agent error")
+                        : (string.IsNullOrWhiteSpace(code) ? msg : $"{code}: {msg}");
+                    artifactCard = null;
+                    var errStatus = root.TryGetProperty("status", out var es) ? es.GetString() : "FAILED";
+                    progressText = $"Task: {errStatus}";
+                    break;
+                }
+                case "InvocationCompleted":
+                    if (root.TryGetProperty("runId", out var rid) && rid.ValueKind == JsonValueKind.String && Guid.TryParse(rid.GetString(), out var runGuid))
+                        diagnosticRunId = runGuid;
+                    var invStatus = root.TryGetProperty("status", out var ist) ? ist.GetString() : "";
+                    if (string.Equals(invStatus, "FAILED", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(invStatus, "NEEDS_ATTENTION", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(invStatus, "UNKNOWN", StringComparison.OrdinalIgnoreCase)
+                        || (root.TryGetProperty("errorCode", out var errc) && errc.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(errc.GetString())))
+                    {
+                        if (string.IsNullOrWhiteSpace(agentError))
+                        {
+                            var code = root.TryGetProperty("errorCode", out var ec2) ? ec2.GetString() : invStatus;
+                            agentError = code ?? invStatus ?? "FAILED";
+                        }
+                        artifactCard = null;
+                    }
+                    else
+                    {
+                        var checks = root.TryGetProperty("checks", out var ch) ? ch.ToString() : "";
+                        artifactCard = $"Статус {invStatus}; checks: {checks}";
+                    }
+                    break;
+                case "AssistantMessageCompleted":
+                    _ = ReloadMessages(activeId!.Value).ContinueWith(_ => InvokeAsync(StateHasChanged));
+                    break;
+            }
+        }
+        catch { /* ignore bad payload */ }
+    }
+
+    async Task Send()
+    {
+        if (activeId is not Guid id || busy || string.IsNullOrWhiteSpace(draft)) return;
+        busy = true;
+        try
+        {
+            var token = await Http.GetFromJsonAsync<Token>("api/v1/security/antiforgery");
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"api/v2/conversations/{id}/messages")
+            {
+                Content = JsonContent.Create(new PostMessage(Guid.NewGuid(), draft))
+            };
+            req.Headers.Add("X-CSRF-TOKEN", token!.RequestToken);
+            using var resp = await Http.SendAsync(req);
+            resp.EnsureSuccessStatusCode();
+            var accepted = await resp.Content.ReadFromJsonAsync<MessageAccepted>(Wire.Json);
+            draft = "";
+            await Open(id);
+            activeTaskId = accepted?.TaskId ?? activeTaskId;
+        }
+        catch { error = "Не удалось отправить сообщение."; }
+        finally { busy = false; }
+    }
+
+    async Task Decide(string decision)
+    {
+        if (pendingInteractionId is not Guid iid || pendingPayloadHash is null || busy) return;
+        busy = true;
+        try
+        {
+            var token = await Http.GetFromJsonAsync<Token>("api/v1/security/antiforgery");
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"api/v2/interactions/{iid}/responses")
+            {
+                Content = JsonContent.Create(new InteractionResponse(Guid.NewGuid(), pendingPayloadHash, decision))
+            };
+            req.Headers.Add("X-CSRF-TOKEN", token!.RequestToken);
+            using var resp = await Http.SendAsync(req);
+            resp.EnsureSuccessStatusCode();
+            pendingInteraction = null;
+            pendingInteractionId = null;
+            if (activeId is Guid id) await Open(id);
+        }
+        catch { error = "Не удалось сохранить решение."; }
+        finally { busy = false; }
+    }
+
+    async Task CancelTask()
+    {
+        if (activeTaskId is not Guid tid || busy) return;
+        busy = true;
+        try
+        {
+            var token = await Http.GetFromJsonAsync<Token>("api/v1/security/antiforgery");
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"api/v2/tasks/{tid}/cancel")
+            {
+                Content = JsonContent.Create(new CancelTask(Guid.NewGuid()))
+            };
+            req.Headers.Add("X-CSRF-TOKEN", token!.RequestToken);
+            using var resp = await Http.SendAsync(req);
+            resp.EnsureSuccessStatusCode();
+            progressText = "CANCEL_REQUESTED";
+        }
+        catch { error = "Не удалось отменить задачу."; }
+        finally { busy = false; }
+    }
+
+    public async ValueTask DisposeAsync() => await StopStreamAsync();
+}

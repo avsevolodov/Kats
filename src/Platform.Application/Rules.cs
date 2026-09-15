@@ -63,3 +63,22 @@ public static class Rules
             Require(request.Answers is null or { Length: 0 }, "ANSWERS_NOT_ALLOWED", 400);
     }
 }
+
+public static class InteractionRules
+{
+    /// <summary>002 Interaction: once/reject (+ answer). Always is excluded (ADR-206).</summary>
+    public static void ValidateDecision(string kind, string decision, string[][]? answers)
+    {
+        var d = (decision ?? "").Trim().ToLowerInvariant();
+        var k = (kind ?? "").Trim().ToLowerInvariant();
+        Rules.Require(d != "always", "ALWAYS_NOT_ALLOWED", 400);
+        if (k is "permission" or "approval")
+            Rules.Require(d is "once" or "reject", "INVALID_DECISION", 400);
+        else if (k is "clarification" or "question")
+        {
+            Rules.Require(d is "answer" or "reject", "INVALID_DECISION", 400);
+            if (d == "answer") Rules.Require(answers is { Length: > 0 }, "ANSWERS_REQUIRED", 400);
+        }
+        else throw new PlatformException("INVALID_INTERACTION_KIND", 400);
+    }
+}

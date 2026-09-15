@@ -16,7 +16,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / ".local"
-COMPONENTS = ("api", "worker", "runner", "opencode")
+COMPONENTS = ("api", "worker", "runner", "opencode", "chat-agent")
 PROXY_ENV = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
              "all_proxy", "ALL_PROXY", "grpc_proxy", "GRPC_PROXY")
 
@@ -282,6 +282,25 @@ def environments(settings, mode):
               "GIT_CREDENTIAL_DIR": path("git-credentials", "/git-credentials")}
     if grpc_ssl:
         runner["PLATFORM_GRPC_SSL_NAME"] = grpc_ssl
+    chat_cfg = settings.get("chatAgent") or {}
+    chat_agent = {
+        "PLATFORM_GRPC": grpc_target,
+        "RUNNER_CA": runner["RUNNER_CA"],
+        "RUNNER_CERT": runner["RUNNER_CERT"],
+        "RUNNER_KEY": runner["RUNNER_KEY"],
+        "CHAT_AGENT_MODE": os.environ.get("CHAT_AGENT_MODE", "fake"),
+    }
+    if chat_cfg.get("provider"):
+        chat_agent["CHAT_AGENT_PROVIDER"] = str(chat_cfg["provider"])
+    if chat_cfg.get("model"):
+        chat_agent["CHAT_AGENT_MODEL"] = str(chat_cfg["model"])
+    if chat_cfg.get("baseUrl"):
+        chat_agent["CHAT_AGENT_BASE_URL"] = str(chat_cfg["baseUrl"])
+    # API key never from settings.json — inherit process env or file reader in config.py
+    if os.environ.get("CHAT_AGENT_API_KEY"):
+        chat_agent["CHAT_AGENT_API_KEY"] = os.environ["CHAT_AGENT_API_KEY"]
+    if grpc_ssl:
+        chat_agent["PLATFORM_GRPC_SSL_NAME"] = grpc_ssl
     code = {"OPENCODE_SERVER_PASSWORD": settings["opencodePassword"],
             "OPENCODE_CONFIG": path("provider/opencode.json", "/provider/opencode.json"),
             "XDG_DATA_HOME": path("opencode-data", "/data"),
@@ -295,7 +314,7 @@ def environments(settings, mode):
         runner.update(code)
         runner["OPENCODE_BIN"] = settings["local"]["opencode"]
         runner["OPENCODE_CLI_VERSION"] = settings["runner"].get("cliVersion", "1.2.27")
-    return dict(api=api, worker=worker, runner=runner, opencode=code)
+    return dict(api=api, worker=worker, runner=runner, opencode=code, **{"chat-agent": chat_agent})
 
 
 def main():
@@ -334,7 +353,9 @@ def main():
         "api": [executables["dotnet"], "run", "--project", "src/Platform.Api", "--no-launch-profile"],
         "worker": [executables["dotnet"], "run", "--project", "src/Platform.Worker", "--no-launch-profile"],
         "runner": ["uv", "run", "--locked", "--no-dev", "agent-runner"],
-        "opencode": [executables["opencode"], "serve", "--hostname", "127.0.0.1", "--port", "4096"]}
+        "opencode": [executables["opencode"], "serve", "--hostname", "127.0.0.1", "--port", "4096"],
+        "chat-agent": ["uv", "run", "--locked", "chat-agent", "--mode", os.environ.get("CHAT_AGENT_MODE", "fake")],
+    }
     # No shell parsing of secrets. OpenCode does not inherit platform connection strings.
     inherited = {k: v for k, v in os.environ.items() if not k.startswith(
         ("ConnectionStrings__", "Oidc__", "Runner__", "Security__", "Temporal__", "GIT_CREDENTIAL", "RUNNER_"))}
@@ -342,7 +363,7 @@ def main():
     if name in {"api", "worker"}:
         # Use the same standard JSON configuration as Rider, without overwriting edits.
         env = {**os.environ, "DOTNET_ENVIRONMENT": "Development", "ASPNETCORE_ENVIRONMENT": "Development"}
-    if name == "runner":
+    if name in {"runner", "chat-agent"}:
         env["PYTHONPATH"] = str(ROOT / "agents")
         scrub_proxy_for_local_grpc(env)
     os.chdir(ROOT)

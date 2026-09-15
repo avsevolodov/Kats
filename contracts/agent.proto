@@ -1,0 +1,155 @@
+syntax = "proto3";
+package agentplatform.agent.v1;
+option csharp_namespace = "AgentPlatform.Contracts.Agent.V1";
+
+service AgentChannel {
+  rpc Connect (stream AgentFrame) returns (stream GatewayAgentFrame);
+}
+
+message AgentFrame {
+  uint32 protocol_version = 1;
+  string message_id = 2;
+  string correlation_id = 3;
+  oneof payload {
+    Hello hello = 10;
+    Claim claim = 11;
+    Heartbeat heartbeat = 12;
+    EnsureInvocation ensure_invocation = 13;
+    GetInvocation get_invocation = 14;
+    OutputBatch output = 15;
+    CreateInteraction create_interaction = 16;
+    Suspend suspend = 17;
+    Complete complete = 18;
+    CheckpointPut checkpoint_put = 19;
+    CheckpointPutWrites checkpoint_put_writes = 20;
+    CheckpointGet checkpoint_get = 21;
+  }
+}
+
+message GatewayAgentFrame {
+  uint32 protocol_version = 1;
+  string message_id = 2;
+  string correlation_id = 3;
+  oneof payload {
+    Assignment assignment = 10;
+    NoWork no_work = 11;
+    InvocationAccepted invocation_accepted = 12;
+    InvocationSnapshot invocation_snapshot = 13;
+    AckPersisted ack = 14;
+    Wakeup wakeup = 15;
+    CancelRequested cancel_requested = 16;
+    CheckpointItem checkpoint_item = 17;
+    ProtocolError error = 18;
+  }
+}
+
+message Hello {
+  string boot_id = 1;
+  string version = 2;
+  repeated string supported_definitions = 3;
+}
+message Claim { string boot_id = 1; }
+message Heartbeat { string boot_id = 1; string invocation_id = 2; int64 fence = 3; }
+message EnsureInvocation {
+  string task_id = 1;
+  string checkpoint_id = 2;
+  string graph_task_path = 3;
+  string tool_call_id = 4;
+  string capability = 5;
+  string version = 6;
+  string input_json = 7;
+}
+message GetInvocation { string invocation_id = 1; }
+message OutputBatch {
+  string invocation_id = 1;
+  string stream_id = 2;
+  int64 producer_sequence = 3;
+  string kind = 4;
+  string text = 5;
+}
+message CreateInteraction {
+  string interaction_id = 1;
+  string task_id = 2;
+  string kind = 3;
+  string payload_json = 4;
+  string payload_hash = 5;
+  int64 expires_unix_ms = 6;
+}
+message Suspend {
+  string invocation_id = 1;
+  string checkpoint_id = 2;
+  repeated string dependency_ids = 3;
+}
+message Complete {
+  string invocation_id = 1;
+  string status = 2;
+  string result_json = 3;
+  string error_code = 4;
+  string safe_message = 5;
+}
+message CheckpointPut {
+  string thread_id = 1;
+  string namespace = 2;
+  string checkpoint_id = 3;
+  string parent_checkpoint_id = 4;
+  string codec_version = 5;
+  string payload_json = 6;
+  string metadata_json = 7;
+  int64 fence = 8;
+}
+message CheckpointPutWrites {
+  string thread_id = 1;
+  string namespace = 2;
+  string checkpoint_id = 3;
+  string graph_task_id = 4;
+  repeated CheckpointWrite writes = 5;
+}
+message CheckpointWrite {
+  int32 write_index = 1;
+  string channel = 2;
+  string value_json = 3;
+}
+message CheckpointGet {
+  string thread_id = 1;
+  string namespace = 2;
+  string checkpoint_id = 3;
+}
+
+message Assignment {
+  string invocation_id = 1;
+  string task_id = 2;
+  string conversation_id = 3;
+  string definition_version = 4;
+  string model_profile = 5;
+  int64 fence = 6;
+  string goal = 7;
+}
+message NoWork {}
+message InvocationAccepted {
+  string invocation_id = 1;
+  string status = 2;
+  string run_id = 3;
+}
+message InvocationSnapshot {
+  string invocation_id = 1;
+  string status = 2;
+  string result_json = 3;
+  string run_id = 4;
+}
+message AckPersisted { string code = 1; }
+message Wakeup { string invocation_id = 1; string reason = 2; }
+message CancelRequested { string invocation_id = 1; }
+message CheckpointItem {
+  string thread_id = 1;
+  string namespace = 2;
+  string checkpoint_id = 3;
+  string parent_checkpoint_id = 4;
+  string codec_version = 5;
+  string payload_json = 6;
+  string metadata_json = 7;
+}
+message ProtocolError {
+  string code = 1;
+  string safe_message = 2;
+  bool retryable = 3;
+}

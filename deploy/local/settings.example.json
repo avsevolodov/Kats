@@ -3,6 +3,11 @@
   "temporal": {"endpoint": "temporal.example.internal:7233", "namespace": "default", "mtls": false},
   "oidc": {"authority": "https://identity.example.internal/realms/platform", "clientId": "agent-platform-local", "clientSecret": "REPLACE"},
   "runner": {"mode": "real", "backend": "server", "cliVersion": "1.2.27", "allowedHosts": "github.com", "provider": "internal", "model": "REPLACE"},
+  "chatAgent": {
+    "provider": "kaspersky_llm",
+    "model": "qwen3.6-35b-a3b",
+    "baseUrl": "https://llm.example.internal/v1"
+  },
   "images": {"opencode": "registry.example.invalid/opencode:approved-version"},
   "local": {
     "dotnet": "dotnet",

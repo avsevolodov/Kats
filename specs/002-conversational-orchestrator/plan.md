@@ -2,17 +2,26 @@
 
 Порядок основан на зависимостях. Оценки предварительные, в инженерных днях, без ожидания доступа к инфраструктуре; это не календарное обещание.
 Owner — роль/компетенция, а не назначенный сотрудник. Задачи и FR traceability: [tasks.md](tasks.md).
+Статус реализации: [docs/implementation-status.md](../../docs/implementation-status.md) (**002 Progress Map**).
 
-| Milestone | Scope | Зависимость | Owner | Оценка | Выход |
-| --- | --- | --- | --- | --- | --- |
-| M0 | Baseline audit, pinned SDK/model, checkpointer spike, HITL decision | — | Architect + Python + C# | 4–6 | Compatibility evidence и согласованный контракт |
-| M1 | Conversation/task persistence, API, fake agent и базовый чат | M0 | C# + Blazor | 5–8 | Диалог без repo, durable history |
-| M2 | Invocation bus, catalog/ACL, coding adapter | M1 | C# + Python | 7–11 | Fake orchestrator → один реальный Coding Run |
-| M3 | Deep Agents integration, checkpoints, discovery, interaction | M2 | Python + C# | 7–11 | Естественный запрос → результат |
-| M4 | Steering, patch follow-up, UX/reconnect | M3 | Blazor + Python | 4–7 | Полный пользовательский цикл |
-| M5 | Failure tests, rollout, эксплуатация | M4 | C# + Python + QA/DevOps | 5–8 | Staging evidence и release readiness |
+| Milestone | Scope | Зависимость | Owner | Оценка | Выход | Status (2026-09-15) |
+| --- | --- | --- | --- | --- | --- | --- |
+| M0 | Baseline audit, pinned SDK/model, checkpointer spike, HITL decision | — | Architect + Python + C# | 4–6 | Compatibility evidence и согласованный контракт | **code done**; live LLM/SQL open |
+| M1 | Conversation/task persistence, API, fake agent и базовый чат | M0 | C# + Blazor | 5–8 | Диалог без repo, durable history | **code done**; live SQL/browser open |
+| M2 | Invocation bus, catalog/ACL, coding adapter | M1 | C# + Python | 7–11 | Fake orchestrator → один реальный Coding Run | **code done**; live OpenCode open |
+| M3 | Deep Agents integration, checkpoints, discovery, interaction | M2 | Python + C# | 7–11 | Естественный запрос → результат | **code done** (recorded model); live model open |
+| M4 | Steering, patch follow-up, UX/reconnect | M3 | Blazor + Python | 4–7 | Полный пользовательский цикл | **code done** T025–T028; live A* open |
+| M5 | Failure tests, rollout, эксплуатация | M4 | C# + Python + QA/DevOps | 5–8 | Staging evidence и release readiness | **unit/ops stubs**; staging → T029 |
 
-Сумма 32–51 инженерный день. Пересмотреть после M0: custom checkpointer и состояние baseline — основные неопределённости. Календарный срок зависит от состава команды.
+Сумма 32–51 инженерный день (оценка исходная). Календарный срок зависит от состава команды и доступа к стенду.
+
+## Next engineering slices
+
+Поставлено code/unit: T025–T028 (interaction wake, steer apply, cancel→abort, resume consume).
+
+**Дальше только:**
+
+5. **T029** — Staging live gate pack (SQL 005–007, Temporal, model, browser, OpenCode) — закрывает A01–A18; mock не засчитывается.
 
 ## Изменения по проектам
 
